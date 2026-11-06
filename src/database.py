@@ -136,3 +136,13 @@ class DatabaseManager:
             cursor.execute(sql)
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
+
+    def delete_post(self, post_id: int) -> bool:
+        """Delete a post by its ID. Returns True if deleted, False if not found."""
+        sql = "DELETE FROM posts WHERE id = ?"
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql, (post_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+

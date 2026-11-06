@@ -119,3 +119,16 @@ def test_get_pending_local_scheduled_posts(db):
     pending_ids = [p["id"] for p in pending]
     assert id_local_1 in pending_ids
     assert id_local_2 in pending_ids
+
+
+def test_delete_post(db):
+    post_id = db.save_post("Test delete", "Content", None, "draft")
+    assert db.get_post_by_id(post_id) is not None
+
+    deleted = db.delete_post(post_id)
+    assert deleted is True
+    assert db.get_post_by_id(post_id) is None
+
+    # Deleting non-existent post returns False
+    assert db.delete_post(post_id) is False
+
