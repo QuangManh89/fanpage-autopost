@@ -317,7 +317,6 @@ with tab1:
                             use_search=use_search,
                         )
                         st.session_state.post_topic = topic_input
-                        st.session_state.topic_input_area = topic_input
                         st.session_state.post_content = result.get("content", "")
                         st.session_state.content_editor_area = st.session_state.post_content
                         st.session_state.post_sources = result.get("sources", [])
