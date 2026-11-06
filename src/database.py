@@ -22,9 +22,13 @@ class DatabaseManager:
             os.makedirs(dirname, exist_ok=True)
 
     def _get_connection(self) -> sqlite3.Connection:
-        """Create and return a SQLite connection with Row row_factory."""
-        conn = sqlite3.connect(self.db_path)
+        """Create and return a SQLite connection with Row row_factory, WAL mode, and 30s timeout."""
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
+        try:
+            conn.execute("PRAGMA journal_mode=WAL;")
+        except sqlite3.Error:
+            pass
         return conn
 
     def init_db(self) -> None:

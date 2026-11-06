@@ -36,7 +36,7 @@ class GeminiService:
             raise ValueError(
                 "GEMINI_API_KEY is required. Please provide it in constructor or set GEMINI_API_KEY environment variable."
             )
-        self.model = model
+        self.model = model or os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash"
         self.client = client or genai.Client(api_key=self.api_key)
 
     def _build_prompt(
