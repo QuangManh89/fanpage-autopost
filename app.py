@@ -142,7 +142,8 @@ st.markdown(
 @st.cache_resource
 def get_database_manager() -> DatabaseManager:
     """Singleton provider for DatabaseManager."""
-    return DatabaseManager(db_path="data/fanpage.db")
+    db_path = os.environ.get("DB_PATH", "data/fanpage.db")
+    return DatabaseManager(db_path=db_path)
 
 
 @st.cache_resource
@@ -176,10 +177,16 @@ scheduler_service = get_scheduler_service()
 # Initialize session state variables
 if "post_topic" not in st.session_state:
     st.session_state.post_topic = ""
+if "topic_input_area" not in st.session_state:
+    st.session_state.topic_input_area = ""
 if "post_content" not in st.session_state:
     st.session_state.post_content = ""
+if "content_editor_area" not in st.session_state:
+    st.session_state.content_editor_area = ""
 if "post_image_path" not in st.session_state:
     st.session_state.post_image_path = None
+if "last_uploaded_file_id" not in st.session_state:
+    st.session_state.last_uploaded_file_id = None
 if "post_sources" not in st.session_state:
     st.session_state.post_sources = []
 if "fb_page_name" not in st.session_state:
@@ -257,11 +264,12 @@ with tab1:
     with col1:
         topic_input = st.text_area(
             "Chủ đề / Từ khóa / Ý tưởng bài viết:",
-            value=st.session_state.post_topic,
+            key="topic_input_area",
             placeholder="Ví dụ: Xu hướng trí tuệ nhân tạo Agentic Coding trong năm 2026 và tác động đến lập trình viên",
             height=90,
             help="Nhập chủ đề bạn muốn Fanpage đăng tải. Càng chi tiết, bài viết sẽ càng chất lượng.",
         )
+        st.session_state.post_topic = topic_input
 
         sub_col1, sub_col2 = st.columns(2)
         with sub_col1:
@@ -309,7 +317,9 @@ with tab1:
                             use_search=use_search,
                         )
                         st.session_state.post_topic = topic_input
+                        st.session_state.topic_input_area = topic_input
                         st.session_state.post_content = result.get("content", "")
+                        st.session_state.content_editor_area = st.session_state.post_content
                         st.session_state.post_sources = result.get("sources", [])
                         st.success("🎉 Bài viết đã được tạo thành công! Bạn có thể chỉnh sửa ở khung bên dưới.")
                 except Exception as exc:
@@ -325,9 +335,8 @@ with tab1:
         st.markdown("#### **Soạn thảo & Chỉnh sửa nội dung trước khi đăng**")
         edited_content = st.text_area(
             "Nội dung bài viết (Hỗ trợ Markdown / Emoji):",
-            value=st.session_state.post_content,
-            height=280,
             key="content_editor_area",
+            height=280,
             placeholder="Nội dung bài viết sẽ xuất hiện ở đây sau khi AI viết, hoặc bạn có thể tự nhập trực tiếp...",
         )
         # Update session state content
@@ -361,12 +370,18 @@ with tab1:
         )
 
         if uploaded_img is not None:
-            try:
-                saved_path = save_uploaded_file(uploaded_img, upload_dir="data/uploads")
-                st.session_state.post_image_path = saved_path
-                st.success(f"✅ Đã tải ảnh lên: `{os.path.basename(saved_path)}`")
-            except Exception as exc:
-                st.error(f"❌ Không thể lưu file ảnh: {exc}")
+            file_signature = (
+                getattr(uploaded_img, "file_id", None)
+                or f"{uploaded_img.name}_{getattr(uploaded_img, 'size', 0)}"
+            )
+            if st.session_state.get("last_uploaded_file_id") != file_signature:
+                try:
+                    saved_path = save_uploaded_file(uploaded_img, upload_dir="data/uploads")
+                    st.session_state.post_image_path = saved_path
+                    st.session_state.last_uploaded_file_id = file_signature
+                    st.success(f"✅ Đã tải ảnh lên: `{os.path.basename(saved_path)}`")
+                except Exception as exc:
+                    st.error(f"❌ Không thể lưu file ảnh: {exc}")
 
         # Show current image preview
         if st.session_state.post_image_path:
@@ -378,6 +393,7 @@ with tab1:
                 )
                 if st.button("🗑️ Xóa ảnh này", use_container_width=True):
                     st.session_state.post_image_path = None
+                    st.session_state.last_uploaded_file_id = None
                     st.rerun()
             else:
                 st.warning("⚠️ File ảnh trước đó không còn tồn tại trên ổ đĩa.")
@@ -769,7 +785,9 @@ with tab3:
                 with btn_c2:
                     if st.button("📝 Chép vào Tab 1 để sửa", key=f"copy_{pid}", use_container_width=True):
                         st.session_state.post_topic = topic
+                        st.session_state.topic_input_area = topic
                         st.session_state.post_content = content
+                        st.session_state.content_editor_area = content
                         st.session_state.post_image_path = image_path if (image_path and os.path.exists(image_path)) else None
                         st.success("✅ Đã nạp nội dung vào Tab 1! Vui lòng chuyển sang Tab 1 để chỉnh sửa.")
 
