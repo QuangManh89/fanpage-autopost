@@ -8,6 +8,7 @@ from src.facebook_service import (
     FacebookTokenError,
     FacebookPermissionError,
 )
+from src.scheduler_service import LocalSchedulerService
 
 __all__ = [
     "DatabaseManager",
@@ -16,6 +17,5 @@ __all__ = [
     "FacebookAPIError",
     "FacebookTokenError",
     "FacebookPermissionError",
+    "LocalSchedulerService",
 ]
-
-
