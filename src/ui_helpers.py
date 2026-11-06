@@ -277,9 +277,13 @@ def load_env_config(env_path: str = ".env") -> dict[str, str]:
     keys = ["GEMINI_API_KEY", "FB_PAGE_ID", "FB_PAGE_ACCESS_TOKEN"]
     result: dict[str, str] = {}
     for key in keys:
-        val = os.environ.get(key)
+        # Prioritize values from .env file over stale OS environment variables
+        val = env_file_vals.get(key)
         if val is None or val == "":
-            val = env_file_vals.get(key, "") or ""
-        result[key] = str(val).strip()
+            val = os.environ.get(key, "") or ""
+        val_clean = str(val).strip()
+        result[key] = val_clean
+        if val_clean:
+            os.environ[key] = val_clean
 
     return result
