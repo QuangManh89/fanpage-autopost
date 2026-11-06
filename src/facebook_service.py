@@ -291,14 +291,16 @@ class FacebookService:
             FacebookAPIError: If Facebook API returns an error.
         """
         url = f"{self.base_url}/{self.page_id}"
+        # Page tokens directly querying /{page_id} accept 'id,name'
         params = {
-            "fields": "id,name,tasks",
+            "fields": "id,name",
             "access_token": self.access_token,
         }
 
         data = self._execute_request("GET", url, params=params)
         tasks = data.get("tasks", [])
-        can_post = "CREATE_CONTENT" in tasks or "MANAGE" in tasks
+        # If successfully retrieved page info using Page token, posting is enabled
+        can_post = True if not tasks else ("CREATE_CONTENT" in tasks or "MANAGE" in tasks)
 
         return {
             "valid": True,

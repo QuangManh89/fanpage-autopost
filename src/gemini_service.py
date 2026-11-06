@@ -18,14 +18,14 @@ class GeminiService:
     def __init__(
         self,
         api_key: str | None = None,
-        model: str = "gemini-2.5-flash",
+        model: str = "gemini-3.5-flash-lite",
         client: Any = None,
     ) -> None:
         """Initialize GeminiService.
 
         Args:
             api_key: Google Gemini API key. Defaults to GEMINI_API_KEY environment variable.
-            model: Gemini model identifier. Defaults to 'gemini-2.5-flash'.
+            model: Gemini model identifier. Defaults to 'gemini-3.5-flash-lite'.
             client: Optional pre-configured genai.Client instance (useful for testing).
 
         Raises:
@@ -36,7 +36,7 @@ class GeminiService:
             raise ValueError(
                 "GEMINI_API_KEY is required. Please provide it in constructor or set GEMINI_API_KEY environment variable."
             )
-        self.model = model or os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash"
+        self.model = os.environ.get("GEMINI_MODEL") or model or "gemini-3.5-flash-lite"
         self.client = client or genai.Client(api_key=self.api_key)
 
     def _build_prompt(
@@ -134,14 +134,46 @@ Hãy viết bài đăng trực tiếp, tự nhiên, không kèm các lời giả
         else:
             config = types.GenerateContentConfig()
 
-        response = self.client.models.generate_content(
-            model=self.model,
-            contents=prompt,
-            config=config,
-        )
+        models_to_try = [self.model]
+        for fallback_m in ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.8-flash"]:
+            if fallback_m not in models_to_try:
+                models_to_try.append(fallback_m)
+
+        response = None
+        last_error = None
+        used_search = use_search
+
+        for m in models_to_try:
+            try:
+                response = self.client.models.generate_content(
+                    model=m,
+                    contents=prompt,
+                    config=config,
+                )
+                break
+            except Exception as e:
+                last_error = e
+                # If Google Search tool quota was exhausted (429), retry without search
+                if used_search and "429" in str(e):
+                    try:
+                        used_search = False
+                        response = self.client.models.generate_content(
+                            model=m,
+                            contents=prompt,
+                            config=types.GenerateContentConfig(),
+                        )
+                        break
+                    except Exception as inner_e:
+                        last_error = inner_e
+                continue
+
+        if response is None:
+            if last_error:
+                raise last_error
+            raise RuntimeError("Không thể tạo nội dung từ Gemini.")
 
         content = getattr(response, "text", "") or ""
-        sources = self._extract_sources(response) if use_search else []
+        sources = self._extract_sources(response) if used_search else []
         hashtags = self._extract_hashtags(content) if include_hashtags else []
 
         return {
