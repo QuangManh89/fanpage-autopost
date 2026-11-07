@@ -163,7 +163,13 @@ class OpenRouterService:
             data = res.json()
             if res.status_code == 200:
                 choices = data.get("choices", [])
-                reply = choices[0].get("message", {}).get("content", "").strip() if choices else "OK"
+                reply = "OK"
+                if choices:
+                    msg = choices[0].get("message", {}) or {}
+                    raw_content = msg.get("content")
+                    if not raw_content:
+                        raw_content = msg.get("reasoning") or msg.get("reasoning_content") or ""
+                    reply = str(raw_content).strip() if raw_content else "OK"
                 return {
                     "success": True,
                     "model": model_id,
@@ -284,8 +290,14 @@ Lưu ý quan trọng:
             if not choices:
                 raise RuntimeError("OpenRouter không trả về nội dung lựa chọn.")
 
-            content = choices[0].get("message", {}).get("content", "") or ""
-            if not content.strip():
+            msg = choices[0].get("message", {}) or {}
+            raw_content = msg.get("content")
+            if not raw_content:
+                # Fallback to reasoning / reasoning_content if content is null
+                raw_content = msg.get("reasoning") or msg.get("reasoning_content") or ""
+
+            content = str(raw_content or "").strip()
+            if not content:
                 raise RuntimeError("OpenRouter trả về nội dung rỗng.")
 
             # Extract citations/sources if available

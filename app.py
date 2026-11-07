@@ -346,11 +346,12 @@ with tab1:
         generate_btn = st.button("✨ Tìm kiếm & Viết bài ngay", type="primary", use_container_width=True)
 
         if generate_btn:
-            if not topic_input.strip():
+            topic_clean = str(topic_input or "").strip()
+            if not topic_clean:
                 st.warning("⚠️ Vui lòng nhập chủ đề trước khi yêu cầu viết bài.")
             else:
-                gemini_key = env_config.get("GEMINI_API_KEY", "").strip()
-                openrouter_key = env_config.get("OPENROUTER_API_KEY", "").strip()
+                gemini_key = str(env_config.get("GEMINI_API_KEY") or "").strip()
+                openrouter_key = str(env_config.get("OPENROUTER_API_KEY") or "").strip()
 
                 active_key = openrouter_key if ai_provider == "OpenRouter" else gemini_key
                 active_key_name = "OPENROUTER_API_KEY" if ai_provider == "OpenRouter" else "GEMINI_API_KEY"
@@ -955,10 +956,10 @@ with tab4:
 
             if save_settings_btn:
                 updates = {
-                    "GEMINI_API_KEY": gemini_key_input.strip(),
-                    "OPENROUTER_API_KEY": openrouter_key_input.strip(),
-                    "FB_PAGE_ID": fb_page_id_input.strip(),
-                    "FB_PAGE_ACCESS_TOKEN": fb_token_input.strip(),
+                    "GEMINI_API_KEY": str(gemini_key_input or "").strip(),
+                    "OPENROUTER_API_KEY": str(openrouter_key_input or "").strip(),
+                    "FB_PAGE_ID": str(fb_page_id_input or "").strip(),
+                    "FB_PAGE_ACCESS_TOKEN": str(fb_token_input or "").strip(),
                 }
                 success = save_env_config(updates, env_path=".env")
                 if success:
@@ -1042,7 +1043,7 @@ with tab4:
         st.markdown("#### **🤖 Quét & Kiểm tra các Model OpenRouter**")
         st.caption("Tra cứu danh sách model thời gian thực từ OpenRouter, lọc model miễn phí và gửi ping kiểm tra kết nối.")
 
-        cur_or_key_scan = env_config.get("OPENROUTER_API_KEY", "").strip()
+        cur_or_key_scan = str(env_config.get("OPENROUTER_API_KEY") or "").strip()
         or_scan_col1, or_scan_col2 = st.columns([1, 1])
         with or_scan_col1:
             only_free_filter = st.checkbox("Chỉ hiển thị Model Miễn Phí (:free)", value=True, key="only_free_filter_cb")
@@ -1064,11 +1065,12 @@ with tab4:
 
         cached_models = st.session_state.get("openrouter_models_cache", [])
         if cached_models:
+            kw_clean = str(model_search_keyword or "").strip().lower()
             filtered = [
                 m for m in cached_models
-                if not model_search_keyword.strip()
-                or model_search_keyword.lower() in m.get("id", "").lower()
-                or model_search_keyword.lower() in m.get("name", "").lower()
+                if not kw_clean
+                or kw_clean in str(m.get("id") or "").lower()
+                or kw_clean in str(m.get("name") or "").lower()
             ]
             st.info(f"📊 Tìm thấy **{len(filtered)}** / {len(cached_models)} model phù hợp")
 

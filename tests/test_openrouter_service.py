@@ -228,3 +228,41 @@ def test_test_model_connection_failure():
         res = service.test_model_connection("deepseek/deepseek-r1:free")
         assert res["success"] is False
         assert "overloaded" in res["message"]
+
+
+def test_test_model_connection_null_content_does_not_crash():
+    """Test that null content (e.g. reasoning models) falls back cleanly without AttributeError."""
+    service = OpenRouterService(api_key="sk-or-test")
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "choices": [{"message": {"role": "assistant", "content": None, "reasoning": "Thinking about ping..."}}]
+    }
+
+    with patch("requests.post", return_value=mock_resp):
+        res = service.test_model_connection("deepseek/deepseek-r1:free")
+        assert res["success"] is True
+        assert "Thinking" in res["message"]
+
+
+def test_generate_fanpage_post_null_content_reasoning_fallback():
+    """Test that post generation gracefully uses reasoning if content is null."""
+    service = OpenRouterService(api_key="sk-or-test")
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "reasoning": "🔥 BẬT MÍ CÁCH BẢO VỆ MÁY TÍNH #TechTips",
+                }
+            }
+        ]
+    }
+
+    with patch("requests.post", return_value=mock_resp):
+        res = service.generate_fanpage_post(topic="Bảo vệ máy tính", use_search=False)
+        assert "BẬT MÍ CÁCH" in res["content"]
+        assert "#TechTips" in res["suggested_hashtags"]
