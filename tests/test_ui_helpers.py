@@ -176,12 +176,14 @@ def test_save_and_load_env_config(tmp_path, monkeypatch):
     env_file = tmp_path / ".env"
     # Ensure fresh state
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("FB_PAGE_ID", raising=False)
     monkeypatch.delenv("FB_PAGE_ACCESS_TOKEN", raising=False)
 
     # Initial write
     configs = {
         "GEMINI_API_KEY": "AIzaSyTestKey123",
+        "OPENROUTER_API_KEY": "sk-or-v1-abc",
         "FB_PAGE_ID": "100200300400",
         "FB_PAGE_ACCESS_TOKEN": "EAAXsampletoken",
     }
@@ -192,6 +194,7 @@ def test_save_and_load_env_config(tmp_path, monkeypatch):
     # Loaded back
     loaded = load_env_config(env_path=str(env_file))
     assert loaded["GEMINI_API_KEY"] == "AIzaSyTestKey123"
+    assert loaded["OPENROUTER_API_KEY"] == "sk-or-v1-abc"
     assert loaded["FB_PAGE_ID"] == "100200300400"
     assert loaded["FB_PAGE_ACCESS_TOKEN"] == "EAAXsampletoken"
 

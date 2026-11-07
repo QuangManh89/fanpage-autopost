@@ -22,6 +22,7 @@ from src.facebook_service import (
     FacebookTokenError,
 )
 from src.gemini_service import GeminiService
+from src.openrouter_service import OpenRouterService
 from src.scheduler_service import LocalSchedulerService
 from src.ui_helpers import (
     format_facebook_url,
@@ -271,6 +272,39 @@ with tab1:
         )
         st.session_state.post_topic = topic_input
 
+        # AI Provider & Model Selection
+        provider_col1, provider_col2 = st.columns([1, 1])
+        with provider_col1:
+            ai_provider = st.radio(
+                "🤖 Nguồn AI tạo nội dung:",
+                ["Google Gemini", "OpenRouter"],
+                horizontal=True,
+                help="Chọn giữa Google Gemini hoặc OpenRouter (hỗ trợ nhiều model miễn phí).",
+            )
+
+        with provider_col2:
+            if ai_provider == "OpenRouter":
+                openrouter_models = [
+                    "deepseek/deepseek-chat:free",
+                    "deepseek/deepseek-r1:free",
+                    "meta-llama/llama-3.3-70b-instruct:free",
+                    "qwen/qwen-2.5-72b-instruct:free",
+                    "google/gemini-2.0-flash-exp:free",
+                    "Tùy chỉnh model ID...",
+                ]
+                chosen_or_model = st.selectbox("Chọn Model OpenRouter (Miễn phí):", openrouter_models)
+                if chosen_or_model == "Tùy chỉnh model ID...":
+                    selected_ai_model = st.text_input("Nhập Model ID OpenRouter:", value="deepseek/deepseek-chat:free")
+                else:
+                    selected_ai_model = chosen_or_model
+            else:
+                gemini_models = [
+                    "gemini-3.5-flash-lite",
+                    "gemini-3.8-flash",
+                    "gemini-3.1-flash-lite",
+                ]
+                selected_ai_model = st.selectbox("Chọn Model Gemini:", gemini_models)
+
         sub_col1, sub_col2 = st.columns(2)
         with sub_col1:
             tone_options = [
@@ -291,42 +325,104 @@ with tab1:
             include_hashtags = st.checkbox(
                 "Đề xuất Hashtags phù hợp ở cuối bài",
                 value=True,
-                help="Gemini sẽ tạo các hashtag liên quan trực tiếp đến chủ đề bài viết.",
+                help="AI sẽ tạo các hashtag liên quan trực tiếp đến chủ đề bài viết.",
             )
             use_search = st.toggle(
-                "🌐 Google Search Grounding",
+                "🌐 Tìm kiếm Web thời gian thực (Web Search)",
                 value=True,
-                help="Bật để Gemini tìm kiếm thông tin mới nhất trên Google trước khi soạn bài.",
+                help="Bật để AI tìm kiếm thông tin mới nhất trên mạng trước khi viết bài.",
             )
+
+        auto_fallback = st.checkbox(
+            "🛡️ Tự động chuyển đổi dự phòng (Auto-fallback) sang nguồn AI khác nếu nguồn chính gặp lỗi/hết quota",
+            value=True,
+        )
 
         generate_btn = st.button("✨ Tìm kiếm & Viết bài ngay", type="primary", use_container_width=True)
 
         if generate_btn:
             if not topic_input.strip():
                 st.warning("⚠️ Vui lòng nhập chủ đề trước khi yêu cầu viết bài.")
-            elif not env_config.get("GEMINI_API_KEY"):
-                st.error("❌ Chưa tìm thấy GEMINI_API_KEY! Vui lòng chuyển sang Tab ⚙️ Cài đặt để cấu hình API Key.")
             else:
-                try:
-                    with st.spinner("🔍 Gemini đang tìm kiếm thông tin từ Google và sáng tạo nội dung bài viết..."):
-                        gemini_svc = GeminiService(api_key=env_config["GEMINI_API_KEY"])
-                        result = gemini_svc.generate_fanpage_post(
-                            topic=topic_input,
-                            tone=tone_text,
-                            include_hashtags=include_hashtags,
-                            use_search=use_search,
-                        )
+                gemini_key = env_config.get("GEMINI_API_KEY", "").strip()
+                openrouter_key = env_config.get("OPENROUTER_API_KEY", "").strip()
+
+                active_key = openrouter_key if ai_provider == "OpenRouter" else gemini_key
+                active_key_name = "OPENROUTER_API_KEY" if ai_provider == "OpenRouter" else "GEMINI_API_KEY"
+
+                if not active_key:
+                    st.error(f"❌ Chưa tìm thấy {active_key_name}! Vui lòng chuyển sang Tab ⚙️ Cài đặt để cấu hình API Key.")
+                else:
+                    success = False
+                    result = None
+                    primary_error = None
+
+                    with st.spinner(f"🔍 Đang gọi {ai_provider} ({selected_ai_model}) sáng tạo nội dung bài viết..."):
+                        try:
+                            if ai_provider == "OpenRouter":
+                                or_svc = OpenRouterService(api_key=openrouter_key, model=selected_ai_model)
+                                result = or_svc.generate_fanpage_post(
+                                    topic=topic_input,
+                                    tone=tone_text,
+                                    include_hashtags=include_hashtags,
+                                    use_search=use_search,
+                                )
+                            else:
+                                gemini_svc = GeminiService(api_key=gemini_key, model=selected_ai_model)
+                                result = gemini_svc.generate_fanpage_post(
+                                    topic=topic_input,
+                                    tone=tone_text,
+                                    include_hashtags=include_hashtags,
+                                    use_search=use_search,
+                                )
+                            success = True
+                        except Exception as exc:
+                            primary_error = exc
+
+                    # Attempt auto-fallback if primary failed and auto_fallback enabled
+                    if not success and auto_fallback:
+                        fallback_provider = "Google Gemini" if ai_provider == "OpenRouter" else "OpenRouter"
+                        fallback_key = gemini_key if fallback_provider == "Google Gemini" else openrouter_key
+
+                        if fallback_key:
+                            st.warning(f"⚠️ {ai_provider} gặp sự cố: {primary_error}. Đang tự động chuyển sang {fallback_provider}...")
+                            with st.spinner(f"🔄 Đang kích hoạt dự phòng qua {fallback_provider}..."):
+                                try:
+                                    if fallback_provider == "OpenRouter":
+                                        or_fallback_svc = OpenRouterService(api_key=openrouter_key)
+                                        result = or_fallback_svc.generate_fanpage_post(
+                                            topic=topic_input,
+                                            tone=tone_text,
+                                            include_hashtags=include_hashtags,
+                                            use_search=use_search,
+                                        )
+                                    else:
+                                        gemini_fallback_svc = GeminiService(api_key=gemini_key)
+                                        result = gemini_fallback_svc.generate_fanpage_post(
+                                            topic=topic_input,
+                                            tone=tone_text,
+                                            include_hashtags=include_hashtags,
+                                            use_search=use_search,
+                                        )
+                                    success = True
+                                    st.info(f"✅ Đã tạo nội dung thành công thông qua nguồn dự phòng: **{fallback_provider}**!")
+                                except Exception as fb_exc:
+                                    st.error(f"❌ Nguồn dự phòng {fallback_provider} cũng gặp lỗi: {fb_exc}")
+                        else:
+                            st.error(f"❌ Lỗi từ {ai_provider}: {primary_error}")
+                    elif not success:
+                        st.error(f"❌ Lỗi từ {ai_provider}: {primary_error}")
+
+                    if success and result:
                         st.session_state.post_topic = topic_input
                         st.session_state.post_content = result.get("content", "")
                         st.session_state.content_editor_area = st.session_state.post_content
                         st.session_state.post_sources = result.get("sources", [])
-                        st.success("🎉 Bài viết đã được tạo thành công! Bạn có thể chỉnh sửa ở khung bên dưới.")
-                except Exception as exc:
-                    st.error(f"❌ Có lỗi khi tạo bài viết: {exc}")
+                        st.success(f"🎉 Bài viết đã được tạo thành công bởi {ai_provider}! Bạn có thể chỉnh sửa ở khung bên dưới.")
 
-        # Display Google Search sources if available
+        # Display Search sources if available
         if st.session_state.post_sources:
-            with st.expander(f"🌐 Nguồn tham khảo từ Google Search ({len(st.session_state.post_sources)})"):
+            with st.expander(f"🌐 Nguồn tham khảo từ Web Search ({len(st.session_state.post_sources)})"):
                 for src in st.session_state.post_sources:
                     st.markdown(f"- [{src}]({src})")
 
@@ -830,6 +926,13 @@ with tab4:
                 help="Lấy khóa miễn phí từ Google AI Studio (https://aistudio.google.com/)",
             )
 
+            openrouter_key_input = st.text_input(
+                "OpenRouter API Key:",
+                value=env_config.get("OPENROUTER_API_KEY", ""),
+                type="password",
+                help="Lấy khóa miễn phí từ OpenRouter (https://openrouter.ai/keys) để dùng DeepSeek, Llama 3, Qwen...",
+            )
+
             fb_page_id_input = st.text_input(
                 "Facebook Fanpage ID:",
                 value=env_config.get("FB_PAGE_ID", ""),
@@ -848,6 +951,7 @@ with tab4:
             if save_settings_btn:
                 updates = {
                     "GEMINI_API_KEY": gemini_key_input.strip(),
+                    "OPENROUTER_API_KEY": openrouter_key_input.strip(),
                     "FB_PAGE_ID": fb_page_id_input.strip(),
                     "FB_PAGE_ACCESS_TOKEN": fb_token_input.strip(),
                 }
@@ -861,7 +965,7 @@ with tab4:
         st.markdown("---")
         st.markdown("#### **🔍 Kiểm tra kết nối API**")
 
-        test_col1, test_col2 = st.columns(2)
+        test_col1, test_col2, test_col3 = st.columns(3)
 
         with test_col1:
             if st.button("Kiểm tra Fanpage", use_container_width=True):
@@ -910,6 +1014,24 @@ with tab4:
                             st.success("✅ Kết nối Gemini API thành công! Mô hình phản hồi tốt.")
                     except Exception as ex:
                         st.error(f"❌ Lỗi kết nối Gemini AI: {ex}")
+
+        with test_col3:
+            if st.button("Kiểm tra OpenRouter", use_container_width=True):
+                cur_or_key = env_config.get("OPENROUTER_API_KEY")
+                if not cur_or_key:
+                    st.warning("⚠️ Vui lòng lưu OpenRouter API Key trước khi kiểm tra.")
+                else:
+                    try:
+                        with st.spinner("Đang xác thực với OpenRouter..."):
+                            or_svc = OpenRouterService(api_key=cur_or_key)
+                            key_info = or_svc.verify_key()
+                            if key_info.get("valid"):
+                                tier_str = "Miễn phí (Free Tier)" if key_info.get("is_free_tier") else "Có phí"
+                                st.success(f"✅ Kết nối OpenRouter thành công!\n- Nhãn: {key_info.get('label')}\n- Gói: {tier_str}")
+                            else:
+                                st.error(f"❌ OpenRouter từ chối khóa: {key_info.get('error')}")
+                    except Exception as ex:
+                        st.error(f"❌ Lỗi kết nối OpenRouter: {ex}")
 
     with guide_col:
         st.markdown("#### **📖 Hướng dẫn chi tiết lấy Long-Lived Token Fanpage**")
@@ -967,5 +1089,17 @@ with tab4:
                 2. Đăng nhập bằng tài khoản Google.
                 3. Nhấp **Get API key** -> **Create API key in new project**.
                 4. Sao chép mã API Key dán vào ô **Google Gemini API Key** bên trái và bấm Lưu.
+                """
+            )
+
+        with st.expander("📌 Bước 6: Lấy OpenRouter API Key (Dùng DeepSeek, Llama 3 miễn phí)"):
+            st.markdown(
+                """
+                1. Truy cập [OpenRouter Keys](https://openrouter.ai/keys).
+                2. Đăng nhập bằng tài khoản Google hoặc GitHub.
+                3. Nhấp nút **Create Key** (Tạo khóa mới).
+                4. Đặt tên gợi nhớ (ví dụ: `Fanpage-AutoPoster`) và nhấn Create.
+                5. Sao chép mã (bắt đầu bằng `sk-or-v1-...`) dán vào ô **OpenRouter API Key** bên trái và bấm Lưu.
+                6. Bạn có thể sử dụng các model đuôi `:free` (như `deepseek/deepseek-chat:free`, `deepseek/deepseek-r1:free`, `meta-llama/llama-3.3-70b-instruct:free`) hoàn toàn miễn phí!
                 """
             )

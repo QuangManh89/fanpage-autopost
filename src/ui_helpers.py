@@ -274,7 +274,12 @@ def load_env_config(env_path: str = ".env") -> dict[str, str]:
     if os.path.exists(env_path):
         env_file_vals = dotenv_values(env_path)
 
-    keys = ["GEMINI_API_KEY", "FB_PAGE_ID", "FB_PAGE_ACCESS_TOKEN"]
+    keys = [
+        "GEMINI_API_KEY",
+        "OPENROUTER_API_KEY",
+        "FB_PAGE_ID",
+        "FB_PAGE_ACCESS_TOKEN",
+    ]
     result: dict[str, str] = {}
     for key in keys:
         # Prioritize values from .env file over stale OS environment variables

@@ -24,6 +24,7 @@ from src.facebook_service import (
     FacebookTokenError,
 )
 from src.gemini_service import GeminiService
+from src.openrouter_service import OpenRouterService
 from src.scheduler_service import LocalSchedulerService
 from src.ui_helpers import (
     validate_schedule_datetime_fb,
@@ -549,3 +550,73 @@ def test_integration_streamlit_apptest_full_ui_flow(monkeypatch, tmp_path):
         # Verify post is published in DB
         updated_posts = db.get_all_posts()
         assert any(p["status"] == "published" for p in updated_posts)
+
+
+def test_integration_openrouter_full_workflow(temp_db):
+    """Test full workflow using OpenRouterService: Generate -> Save Draft -> Publish to Facebook."""
+    openrouter_response = {
+        "id": "gen-openrouter-test",
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": (
+                        "🚀 TOP 3 CÁCH BẢO VỆ MÁY TÍNH KHỎI VIRUS ĐỘC HẠI! 🛡️\n\n"
+                        "Bạn có biết mỗi ngày có hàng ngàn mã độc tấn công máy tính cá nhân?\n\n"
+                        "📌 Cần lưu ý:\n"
+                        "• Không bấm vào link lạ trong email\n"
+                        "• Cập nhật Windows Defender thường xuyên\n\n"
+                        "👉 Liên hệ Sửa Máy Tính BMT để được hỗ trợ tận nơi!\n\n"
+                        "#BaoVeMayTinh #AnNinhMang #SuaMayTinhBMT"
+                    ),
+                }
+            }
+        ],
+        "citations": ["https://security.googleblog.com"],
+    }
+
+    mock_fb_response = {"id": "619960427857965_9876543210"}
+
+    with patch("requests.post") as mock_post:
+        # First post call is OpenRouter generate
+        # Second post call is Facebook publish
+        mock_post.side_effect = [
+            MagicMock(status_code=200, json=lambda: openrouter_response),
+            MagicMock(status_code=200, json=lambda: mock_fb_response),
+        ]
+
+        # 1. Generate post with OpenRouterService
+        or_svc = OpenRouterService(api_key="sk-or-v1-mock-key", model="deepseek/deepseek-chat:free")
+        generated = or_svc.generate_fanpage_post(
+            topic="Cách bảo vệ máy tính khỏi virus",
+            tone="chuyên gia",
+            include_hashtags=True,
+            use_search=True,
+        )
+
+        assert "TOP 3 CÁCH BẢO VỆ MÁY TÍNH" in generated["content"]
+        assert len(generated["sources"]) == 1
+        assert "#SuaMayTinhBMT" in generated["suggested_hashtags"]
+
+        # 2. Save as draft in SQLite Database
+        post_id = temp_db.save_post(
+            topic="Cách bảo vệ máy tính khỏi virus",
+            content=generated["content"],
+            image_path=None,
+            status="draft",
+        )
+        assert post_id > 0
+        saved_post = temp_db.get_post_by_id(post_id)
+        assert saved_post["status"] == "draft"
+
+        # 3. Publish to Facebook Fanpage
+        fb_svc = FacebookService(page_id="619960427857965", access_token="mock_valid_token")
+        pub_res = fb_svc.publish_text_post(message=saved_post["content"])
+        assert pub_res["id"] == "619960427857965_9876543210"
+
+        # 4. Update status in Database
+        temp_db.update_post_status(post_id=post_id, status="published", fb_post_id=pub_res["id"])
+        final_post = temp_db.get_post_by_id(post_id)
+        assert final_post["status"] == "published"
+        assert final_post["fb_post_id"] == "619960427857965_9876543210"
+

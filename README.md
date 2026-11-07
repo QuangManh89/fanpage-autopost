@@ -6,7 +6,8 @@
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.43%2B-FF4B4B?logo=streamlit)
 ![Google Gemini](https://img.shields.io/badge/Google%20Gemini-2.5%20Flash-4285F4?logo=google)
 ![Meta Graph API](https://img.shields.io/badge/Meta%20Graph%20API-v20.0-1877F2?logo=facebook)
-![Tests](https://img.shields.io/badge/Tests-87%20Passed%20(100%25)-success?logo=pytest)
+![Tests](https://img.shields.io/badge/Tests-97%20Passed%20(100%25)-success?logo=pytest)
+![OpenRouter](https://img.shields.io/badge/OpenRouter-Free%20Models-7C3AED?logo=openai)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
@@ -35,8 +36,9 @@
 
 ## ✨ Tính Năng Nổi Bật
 
-- ✍️ **Sáng tạo bài viết tự động với Google Gemini 2.5**: Tự động sinh nội dung bài viết theo cấu trúc chuẩn viral của mạng xã hội (Hook giật gân, Intro thu hút, Thân bài chia gạch đầu dòng trực quan với Emoji, Call To Action kích thích tương tác).
-- 🌐 **Google Search Grounding (Tìm kiếm web thời gian thực)**: Tự động tra cứu Google Search trước khi viết để cập nhật số liệu, tin tức mới nhất vào bài viết, hiển thị rõ ràng danh sách nguồn link tham khảo.
+- ✍️ **Sáng tạo bài viết tự động đa nguồn AI (Google Gemini & OpenRouter)**: Hỗ trợ linh hoạt cả **Google Gemini** và **OpenRouter** (DeepSeek V3, DeepSeek R1, Llama 3.3 70B, Qwen 2.5 miễn phí). Tự động sinh nội dung theo cấu trúc chuẩn viral mạng xã hội.
+- 🛡️ **Cơ chế chuyển đổi dự phòng (Auto-fallback)**: Tự động chuyển đổi giữa Gemini và OpenRouter nếu nhà cung cấp chính gặp lỗi quota (429/503), đảm bảo việc tạo bài không bao giờ bị gián đoạn.
+- 🌐 **Tìm kiếm Web thời gian thực (Web Search)**: Tự động tra cứu Google Search (với Gemini) hoặc Web Plugin (với OpenRouter) trước khi viết để cập nhật số liệu, tin tức mới nhất vào bài viết, hiển thị rõ ràng danh sách nguồn link tham khảo.
 - 🎭 **Tùy biến phong cách viết (Tone of Voice)**: Lựa chọn linh hoạt giữa *Chuyên nghiệp*, *Hài hước*, *Kể chuyện (Storytelling)*, *Tin tức nóng hổi*, *Tips & Tricks* hoặc nhập phong cách riêng tùy thích.
 - #️⃣ **Tự động đề xuất Hashtags**: Tự động gợi ý 3–7 hashtag thịnh hành và liên quan mật thiết đến chủ đề.
 - 🖼️ **Đính kèm hình ảnh chất lượng cao**: Hỗ trợ tải ảnh từ máy tính (PNG, JPG, JPEG, WEBP tối đa 10MB) kèm preview trực tiếp.
@@ -66,13 +68,15 @@ DangbaiFanpage/
 │   ├── __init__.py
 │   ├── database.py             # DatabaseManager quản lý SQLite CRUD
 │   ├── gemini_service.py       # GeminiService gọi Google Gemini AI & Google Search
+│   ├── openrouter_service.py   # OpenRouterService kết nối DeepSeek, Llama 3, Qwen
 │   ├── facebook_service.py     # FacebookService tương tác Meta Graph API
 │   ├── scheduler_service.py    # LocalSchedulerService điều phối lịch hẹn ngầm APScheduler
 │   └── ui_helpers.py           # Tiện ích UI (badge, format URL, validate ngày giờ, upload)
-└── tests/                      # Bộ kiểm thử tự động toàn diện (87 tests)
+└── tests/                      # Bộ kiểm thử tự động toàn diện (97 tests)
     ├── __init__.py
     ├── test_database.py        # Kiểm thử CRUD database SQLite
     ├── test_gemini_service.py  # Kiểm thử Gemini AI & Grounding
+    ├── test_openrouter_service.py # Kiểm thử OpenRouter API & Web plugin
     ├── test_facebook_service.py# Kiểm thử Facebook Graph API & mã lỗi Token
     ├── test_scheduler_service.py# Kiểm thử APScheduler & khôi phục bài viết
     ├── test_ui_helpers.py      # Kiểm thử các hàm tiện ích UI
@@ -192,16 +196,33 @@ https://graph.facebook.com/v20.0/{PAGE_ID}?fields=access_token&access_token={LON
 
 ---
 
-### 4.3. Cấu hình file `.env`
+### 4.3. Lấy OpenRouter API Key (Dùng DeepSeek, Llama 3, Qwen miễn phí)
+
+1. Truy cập [OpenRouter Keys](https://openrouter.ai/keys).
+2. Đăng nhập bằng tài khoản Google hoặc GitHub.
+3. Bấm **Create Key** -> Đặt tên cho khóa (ví dụ: `Fanpage-AutoPoster`) -> Bấm **Create**.
+4. Sao chép chuỗi mã (bắt đầu bằng `sk-or-v1-...`).
+5. Bạn có thể sử dụng các model hoàn toàn miễn phí như:
+   - `deepseek/deepseek-chat:free` (DeepSeek V3 siêu mượt)
+   - `deepseek/deepseek-r1:free` (DeepSeek R1 tư duy thông minh)
+   - `meta-llama/llama-3.3-70b-instruct:free` (Meta Llama 3.3 70B)
+   - `qwen/qwen-2.5-72b-instruct:free` (Alibaba Qwen 2.5 72B)
+
+---
+
+### 4.4. Cấu hình file `.env`
 
 Bạn có thể cấu hình trực tiếp từ giao diện **Tab 4 (Cài đặt)** trên ứng dụng web, hoặc tạo file `.env` trong thư mục gốc dự án theo mẫu sau:
 
 ```ini
 # Google Gemini API Key
-GEMINI_API_KEY=AIzaSyBxxxxxx...
+GEMINI_API_KEY=AQ.Ab8xxxxxx...
+
+# OpenRouter API Key (Tùy chọn)
+OPENROUTER_API_KEY=sk-or-v1-xxxxxx...
 
 # Facebook Fanpage Configuration
-FB_PAGE_ID=102938475610293
+FB_PAGE_ID=619960427857965
 FB_PAGE_ACCESS_TOKEN=EAABxxxxxx...
 
 # Database Configuration (Mặc định)
