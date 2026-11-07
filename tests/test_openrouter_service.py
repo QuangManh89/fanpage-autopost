@@ -156,3 +156,75 @@ def test_generate_fanpage_post_api_error():
     with patch("requests.post", return_value=mock_response):
         with pytest.raises(RuntimeError, match="Rate limit exceeded"):
             service.generate_fanpage_post(topic="Thủ thuật Windows")
+
+
+def test_get_available_models():
+    """Test retrieving available models list from OpenRouter."""
+    service = OpenRouterService(api_key="sk-or-test")
+    mock_data = {
+        "data": [
+            {
+                "id": "deepseek/deepseek-chat:free",
+                "name": "DeepSeek: DeepSeek V3 (free)",
+                "context_length": 64000,
+                "pricing": {"prompt": "0", "completion": "0"},
+            },
+            {
+                "id": "anthropic/claude-3.5-sonnet",
+                "name": "Anthropic: Claude 3.5 Sonnet",
+                "context_length": 200000,
+                "pricing": {"prompt": "0.000003", "completion": "0.000015"},
+            },
+            {
+                "id": "meta-llama/llama-3.3-70b-instruct:free",
+                "name": "Meta: Llama 3.3 70B (free)",
+                "context_length": 131072,
+                "pricing": {"prompt": "0", "completion": "0"},
+            },
+        ]
+    }
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = mock_data
+
+    with patch("requests.get", return_value=mock_resp):
+        all_models = service.get_available_models(only_free=False)
+        assert len(all_models) == 3
+
+        free_models = service.get_available_models(only_free=True)
+        assert len(free_models) == 2
+        assert all(m["is_free"] for m in free_models)
+        assert any("deepseek" in m["id"] for m in free_models)
+
+
+def test_test_model_connection_success():
+    """Test pinging an OpenRouter model successfully."""
+    service = OpenRouterService(api_key="sk-or-test")
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "choices": [{"message": {"content": "pong"}}]
+    }
+
+    with patch("requests.post", return_value=mock_resp):
+        res = service.test_model_connection("deepseek/deepseek-chat:free")
+        assert res["success"] is True
+        assert res["model"] == "deepseek/deepseek-chat:free"
+        assert res["latency_ms"] >= 0
+        assert "pong" in res["message"]
+
+
+def test_test_model_connection_failure():
+    """Test pinging an OpenRouter model when model fails or is rate limited."""
+    service = OpenRouterService(api_key="sk-or-test")
+    mock_resp = MagicMock()
+    mock_resp.status_code = 503
+    mock_resp.json.return_value = {
+        "error": {"message": "Model is temporarily overloaded"}
+    }
+
+    with patch("requests.post", return_value=mock_resp):
+        res = service.test_model_connection("deepseek/deepseek-r1:free")
+        assert res["success"] is False
+        assert "overloaded" in res["message"]

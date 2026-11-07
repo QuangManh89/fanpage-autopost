@@ -93,6 +93,99 @@ class OpenRouterService:
                 "error": str(e),
             }
 
+    def get_available_models(self, only_free: bool = False) -> list[dict[str, Any]]:
+        """Fetch models available on OpenRouter with metadata.
+
+        Args:
+            only_free: If True, only returns models that are 100% free (:free tag or zero cost).
+
+        Returns:
+            list of dicts containing id, name, context_length, pricing, is_free.
+        """
+        url = f"{self.BASE_URL}/models"
+        try:
+            res = requests.get(url, headers=self._get_headers(), timeout=15)
+            if res.status_code != 200:
+                return []
+            data = res.json()
+            raw_models = data.get("data", [])
+            results = []
+            for m in raw_models:
+                m_id = m.get("id", "")
+                pricing = m.get("pricing", {}) or {}
+                try:
+                    prompt_cost = float(pricing.get("prompt", 1.0) or 0.0)
+                    completion_cost = float(pricing.get("completion", 1.0) or 0.0)
+                except (ValueError, TypeError):
+                    prompt_cost = 1.0
+                    completion_cost = 1.0
+                is_free = ":free" in m_id or (prompt_cost == 0 and completion_cost == 0)
+
+                if only_free and not is_free:
+                    continue
+
+                results.append({
+                    "id": m_id,
+                    "name": m.get("name", m_id),
+                    "context_length": m.get("context_length", 0),
+                    "pricing": pricing,
+                    "is_free": is_free,
+                })
+            return results
+        except Exception:
+            return []
+
+    def test_model_connection(self, model_id: str) -> dict[str, Any]:
+        """Send a lightweight ping to a specific OpenRouter model to test connectivity.
+
+        Args:
+            model_id: The OpenRouter model ID to check.
+
+        Returns:
+            dict containing:
+                - success (bool): True if model responded.
+                - model (str): Tested model ID.
+                - latency_ms (int): Response time in milliseconds.
+                - message (str): Response text or error explanation.
+        """
+        import time
+
+        url = f"{self.BASE_URL}/chat/completions"
+        payload = {
+            "model": model_id,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 15,
+        }
+        start = time.perf_counter()
+        try:
+            res = requests.post(url, headers=self._get_headers(), json=payload, timeout=20)
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+            data = res.json()
+            if res.status_code == 200:
+                choices = data.get("choices", [])
+                reply = choices[0].get("message", {}).get("content", "").strip() if choices else "OK"
+                return {
+                    "success": True,
+                    "model": model_id,
+                    "latency_ms": elapsed_ms,
+                    "message": reply or "Kết nối thành công (200 OK)",
+                }
+            err_msg = data.get("error", {}).get("message", f"HTTP {res.status_code}")
+            return {
+                "success": False,
+                "model": model_id,
+                "latency_ms": elapsed_ms,
+                "message": err_msg,
+            }
+        except Exception as e:
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+            return {
+                "success": False,
+                "model": model_id,
+                "latency_ms": elapsed_ms,
+                "message": str(e),
+            }
+
     def _build_prompt(self, topic: str, tone: str, include_hashtags: bool) -> str:
         """Construct prompt for Facebook Fanpage content creation."""
         hashtag_instruction = (

@@ -284,15 +284,20 @@ with tab1:
 
         with provider_col2:
             if ai_provider == "OpenRouter":
+                cached_or = [m["id"] for m in st.session_state.get("openrouter_models_cache", [])]
                 openrouter_models = [
                     "deepseek/deepseek-chat:free",
                     "deepseek/deepseek-r1:free",
                     "meta-llama/llama-3.3-70b-instruct:free",
                     "qwen/qwen-2.5-72b-instruct:free",
                     "google/gemini-2.0-flash-exp:free",
-                    "Tùy chỉnh model ID...",
                 ]
-                chosen_or_model = st.selectbox("Chọn Model OpenRouter (Miễn phí):", openrouter_models)
+                for m_id in cached_or:
+                    if m_id not in openrouter_models:
+                        openrouter_models.append(m_id)
+                openrouter_models.append("Tùy chỉnh model ID...")
+
+                chosen_or_model = st.selectbox("Chọn Model OpenRouter:", openrouter_models)
                 if chosen_or_model == "Tùy chỉnh model ID...":
                     selected_ai_model = st.text_input("Nhập Model ID OpenRouter:", value="deepseek/deepseek-chat:free")
                 else:
@@ -1032,6 +1037,64 @@ with tab4:
                                 st.error(f"❌ OpenRouter từ chối khóa: {key_info.get('error')}")
                     except Exception as ex:
                         st.error(f"❌ Lỗi kết nối OpenRouter: {ex}")
+
+        st.markdown("---")
+        st.markdown("#### **🤖 Quét & Kiểm tra các Model OpenRouter**")
+        st.caption("Tra cứu danh sách model thời gian thực từ OpenRouter, lọc model miễn phí và gửi ping kiểm tra kết nối.")
+
+        cur_or_key_scan = env_config.get("OPENROUTER_API_KEY", "").strip()
+        or_scan_col1, or_scan_col2 = st.columns([1, 1])
+        with or_scan_col1:
+            only_free_filter = st.checkbox("Chỉ hiển thị Model Miễn Phí (:free)", value=True, key="only_free_filter_cb")
+        with or_scan_col2:
+            model_search_keyword = st.text_input("Lọc theo tên hoặc ID:", placeholder="vd: deepseek, llama, qwen...", key="or_kw_filter")
+
+        if st.button("🔄 Tải danh sách Model từ OpenRouter", use_container_width=True, key="fetch_or_models_btn"):
+            if not cur_or_key_scan:
+                st.warning("⚠️ Vui lòng lưu OPENROUTER_API_KEY trước khi quét danh sách.")
+            else:
+                try:
+                    with st.spinner("Đang tải danh sách model thời gian thực từ OpenRouter..."):
+                        or_svc = OpenRouterService(api_key=cur_or_key_scan)
+                        models_list = or_svc.get_available_models(only_free=only_free_filter)
+                        st.session_state.openrouter_models_cache = models_list
+                        st.success(f"✅ Đã tìm thấy {len(models_list)} model!")
+                except Exception as ex:
+                    st.error(f"❌ Không thể tải danh sách model: {ex}")
+
+        cached_models = st.session_state.get("openrouter_models_cache", [])
+        if cached_models:
+            filtered = [
+                m for m in cached_models
+                if not model_search_keyword.strip()
+                or model_search_keyword.lower() in m.get("id", "").lower()
+                or model_search_keyword.lower() in m.get("name", "").lower()
+            ]
+            st.info(f"📊 Tìm thấy **{len(filtered)}** / {len(cached_models)} model phù hợp")
+
+            if filtered:
+                test_m_col1, test_m_col2 = st.columns([2, 1])
+                with test_m_col1:
+                    selected_test_m = st.selectbox(
+                        "Chọn model để kiểm tra kết nối trực tiếp:",
+                        options=[m["id"] for m in filtered],
+                        format_func=lambda mid: next((f"{m['name']} ({m['id']})" for m in filtered if m["id"] == mid), mid),
+                        key="selected_test_m_box",
+                    )
+                with test_m_col2:
+                    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                    test_ping_btn = st.button("⚡ Test kết nối model này", use_container_width=True, key="test_ping_m_btn")
+
+                if test_ping_btn and selected_test_m:
+                    with st.spinner(f"Đang gửi ping thử nghiệm tới model `{selected_test_m}`..."):
+                        or_svc = OpenRouterService(api_key=cur_or_key_scan)
+                        ping_res = or_svc.test_model_connection(selected_test_m)
+                        if ping_res.get("success"):
+                            st.success(f"🟢 **{selected_test_m}** phản hồi thành công!\n- Thời gian: `{ping_res.get('latency_ms')}ms`\n- Trả lời: `{ping_res.get('message')}`")
+                        else:
+                            st.error(f"🔴 **{selected_test_m}** lỗi: {ping_res.get('message')}")
+            else:
+                st.warning("Không tìm thấy model nào khớp với từ khóa tìm kiếm.")
 
     with guide_col:
         st.markdown("#### **📖 Hướng dẫn chi tiết lấy Long-Lived Token Fanpage**")
