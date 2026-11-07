@@ -39,11 +39,20 @@ if %errorlevel% neq 0 (
     )
 )
 
+REM Tu dong bo qua man hinh hoi Email lan dau cua Streamlit
+if not exist "%USERPROFILE%\.streamlit" mkdir "%USERPROFILE%\.streamlit"
+if not exist "%USERPROFILE%\.streamlit\credentials.toml" (
+    (
+        echo [general]
+        echo email = ""
+    ) > "%USERPROFILE%\.streamlit\credentials.toml"
+)
+
 echo [*] Dang khoi chay Streamlit Web Dashboard...
 echo [*] Trinh duyet se tu dong mo tai: http://localhost:8501
 echo [*] Nhan Ctrl+C de dung ung dung.
 echo.
-streamlit run app.py --server.port 8501
+streamlit run app.py --server.port 8501 --browser.gatherUsageStats false
 
 if %errorlevel% neq 0 (
     echo.
