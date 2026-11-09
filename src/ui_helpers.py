@@ -280,6 +280,8 @@ def load_env_config(env_path: str = ".env") -> dict[str, str]:
         "OPENROUTER_API_KEY",
         "FB_PAGE_ID",
         "FB_PAGE_ACCESS_TOKEN",
+        "FB_APP_ID",
+        "FB_APP_SECRET",
     ]
     result: dict[str, str] = {}
     for key in keys:

@@ -514,3 +514,94 @@ class FacebookService:
         }
 
         return self._execute_request("GET", url, params=params)
+
+    # ==================== Token Exchange & Account Tools ====================
+
+    @classmethod
+    def exchange_token_to_long_lived(
+        cls,
+        app_id: str,
+        app_secret: str,
+        short_token: str,
+        api_version: str = "v20.0",
+        timeout: int = 30,
+    ) -> dict:
+        """Exchange a short-lived User token for a 60-day long-lived User token.
+
+        Calls: GET https://graph.facebook.com/{api_version}/oauth/access_token
+        Params:
+            grant_type: fb_exchange_token
+            client_id: app_id
+            client_secret: app_secret
+            fb_exchange_token: short_token
+
+        Returns:
+            dict containing access_token, token_type, and expires_in.
+        """
+        clean_app_id = str(app_id or "").strip()
+        clean_secret = str(app_secret or "").strip()
+        clean_token = str(short_token or "").strip()
+        if not clean_app_id or not clean_secret or not clean_token:
+            raise ValueError("Vui lòng nhập đầy đủ App ID, App Secret và Token ngắn hạn.")
+
+        url = f"https://graph.facebook.com/{api_version}/oauth/access_token"
+        params = {
+            "grant_type": "fb_exchange_token",
+            "client_id": clean_app_id,
+            "client_secret": clean_secret,
+            "fb_exchange_token": clean_token,
+        }
+        svc = cls(page_id="dummy", access_token=clean_token, api_version=api_version, timeout=timeout)
+        return svc._execute_request("GET", url, params=params)
+
+    @classmethod
+    def get_user_accounts(
+        cls,
+        user_access_token: str,
+        api_version: str = "v20.0",
+        timeout: int = 30,
+    ) -> list[dict]:
+        """Fetch list of Facebook Pages managed by user using a user access token.
+
+        When called with a 60-day long-lived user token, the returned page access tokens
+        NEVER EXPIRE (vĩnh viễn).
+
+        Calls: GET https://graph.facebook.com/{api_version}/me/accounts
+        Params:
+            access_token: user_access_token
+            fields: id,name,access_token,tasks
+
+        Returns:
+            list of dicts containing page id, name, access_token, and tasks.
+        """
+        clean_token = str(user_access_token or "").strip()
+        if not clean_token:
+            raise ValueError("Chưa có User Access Token.")
+
+        url = f"https://graph.facebook.com/{api_version}/me/accounts"
+        params = {
+            "fields": "id,name,access_token,tasks",
+            "access_token": clean_token,
+        }
+        svc = cls(page_id="dummy", access_token=clean_token, api_version=api_version, timeout=timeout)
+        data = svc._execute_request("GET", url, params=params)
+        return data.get("data", [])
+
+    @classmethod
+    def exchange_page_token_to_never_expire(
+        cls,
+        app_id: str,
+        app_secret: str,
+        page_token_short: str,
+        api_version: str = "v20.0",
+        timeout: int = 30,
+    ) -> dict:
+        """Directly exchange a short-lived Page token for a permanent Page token."""
+        return cls.exchange_token_to_long_lived(
+            app_id=app_id,
+            app_secret=app_secret,
+            short_token=page_token_short,
+            api_version=api_version,
+            timeout=timeout,
+        )
+

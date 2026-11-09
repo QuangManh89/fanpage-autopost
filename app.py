@@ -1176,8 +1176,21 @@ with tab5:
                 help="Lấy khóa miễn phí từ OpenRouter (https://openrouter.ai/keys) để dùng DeepSeek, Llama 3, Qwen...",
             )
 
+            fb_app_id_input = st.text_input(
+                "Facebook App ID (n8nauto):",
+                value=env_config.get("FB_APP_ID", "3711376692339694"),
+                help="App ID từ Meta Developer App của bạn (Mặc định: 3711376692339694)",
+            )
+
+            fb_app_secret_input = st.text_input(
+                "Facebook App Secret:",
+                value=env_config.get("FB_APP_SECRET", ""),
+                type="password",
+                help="App Secret lấy từ developers.facebook.com/apps/.../settings/basic/ (bấm nút Copy)",
+            )
+
             fb_page_id_input = st.text_input(
-                "Facebook Fanpage ID:",
+                "Facebook Fanpage ID (Mặc định):",
                 value=env_config.get("FB_PAGE_ID", ""),
                 help="ID trang Fanpage của bạn (gồm dãy số, ví dụ: 102938475610293)",
             )
@@ -1195,6 +1208,8 @@ with tab5:
                 updates = {
                     "GEMINI_API_KEY": str(gemini_key_input or "").strip(),
                     "OPENROUTER_API_KEY": str(openrouter_key_input or "").strip(),
+                    "FB_APP_ID": str(fb_app_id_input or "").strip(),
+                    "FB_APP_SECRET": str(fb_app_secret_input or "").strip(),
                     "FB_PAGE_ID": str(fb_page_id_input or "").strip(),
                     "FB_PAGE_ACCESS_TOKEN": str(fb_token_input or "").strip(),
                 }
@@ -1405,3 +1420,181 @@ with tab5:
                 6. Bạn có thể sử dụng các model đuôi `:free` (như `deepseek/deepseek-chat:free`, `deepseek/deepseek-r1:free`, `meta-llama/llama-3.3-70b-instruct:free`) hoàn toàn miễn phí!
                 """
             )
+
+
+    # --------------------------------------------------------------------------
+    # KHU VỰC CÔNG CỤ FB TOKEN VĨNH VIỄN TOOL (Fb-Token-Tool.html)
+    # --------------------------------------------------------------------------
+    st.markdown("---")
+    st.subheader("🔑 FB Token Vĩnh Viễn Tool (Tự động đổi & Lấy Token Page)")
+    st.caption("Công cụ tự động chuyển đổi User Token ngắn hạn (1h) thành Token dài hạn (60 ngày) và trích xuất Page Access Token vĩnh viễn (Never Expire). Chạy trực tiếp từ server Python tránh hoàn toàn lỗi CORS.")
+
+    st.warning("⚠️ **Bảo mật:** Token tương đương mật khẩu Fanpage. Hệ thống lưu trữ an toàn nội bộ trong máy của bạn, không gửi dữ liệu ra bên ngoài.")
+
+    tool_col1, tool_col2 = st.columns([1, 1], gap="large")
+
+    with tool_col1:
+        st.markdown("##### **1️⃣ Nhập thông số đổi Token**")
+        tool_app_id = st.text_input(
+            "Meta App ID:",
+            value=env_config.get("FB_APP_ID", "3711376692339694"),
+            key="fb_tool_app_id",
+            help="Mặc định lấy từ App ID đã lưu hoặc App n8nauto (3711376692339694)",
+        )
+        tool_app_secret = st.text_input(
+            "Meta App Secret:",
+            value=env_config.get("FB_APP_SECRET", ""),
+            type="password",
+            key="fb_tool_app_secret",
+            help="Lấy tại developers.facebook.com/apps/.../settings/basic/ -> Bấm nút Copy kế bên App Secret",
+        )
+        tool_short_token = st.text_area(
+            "Token ngắn hạn (Bắt đầu bằng EAA... tạo ở Graph API Explorer):",
+            value="",
+            height=90,
+            key="fb_tool_short_token",
+            placeholder="Dán User Token ngắn hạn vừa tạo ở Graph Explorer...",
+        )
+
+        btn_auto_all = st.button(
+            "🚀 1-Click: Đổi Token & Lấy tất cả Fanpages",
+            type="primary",
+            use_container_width=True,
+            key="fb_tool_btn_exchange_all",
+        )
+
+        if btn_auto_all:
+            clean_app_id = str(tool_app_id or "").strip()
+            clean_app_secret = str(tool_app_secret or "").strip()
+            clean_short_token = str(tool_short_token or "").strip()
+
+            if not clean_app_id or not clean_app_secret or not clean_short_token:
+                st.error("❌ Vui lòng điền đầy đủ App ID, App Secret và Token ngắn hạn!")
+            else:
+                try:
+                    with st.spinner("Đang gọi Facebook Graph API để đổi User Token dài hạn..."):
+                        long_lived_res = FacebookService.exchange_token_to_long_lived(
+                            app_id=clean_app_id,
+                            app_secret=clean_app_secret,
+                            short_token=clean_short_token,
+                        )
+                        long_user_token = long_lived_res.get("access_token", "")
+                        st.session_state["tool_long_token"] = long_user_token
+                        st.session_state["tool_long_expires"] = long_lived_res.get("expires_in")
+
+                    with st.spinner("Đang lấy danh sách Fanpage và Page Access Token vĩnh viễn..."):
+                        accounts = FacebookService.get_user_accounts(user_access_token=long_user_token)
+                        st.session_state["tool_found_pages"] = accounts
+                        st.success(f"🎉 Thành công! Tìm thấy {len(accounts)} Fanpage với Token vĩnh viễn!")
+                        st.rerun()
+                except FacebookTokenError as fte:
+                    st.error(f"❌ Lỗi Token: {fte.user_message}\n\n💡 Lưu ý: Nếu lỗi 'Error validating client secret', hãy copy lại App Secret bằng nút Copy trong Meta Developer (đừng bôi đen bằng tay).")
+                except FacebookAPIError as fae:
+                    st.error(f"❌ Lỗi Facebook Graph API: {fae.user_message}")
+                except Exception as ex:
+                    st.error(f"❌ Lỗi không xác định: {ex}")
+
+        with st.expander("🛠️ Đổi từng bước hoặc dán User Token dài hạn có sẵn"):
+            manual_long_token_input = st.text_input(
+                "User Token dài hạn (60 ngày):",
+                value=st.session_state.get("tool_long_token", ""),
+                key="manual_long_token_input",
+                type="password",
+            )
+            if st.button("📄 Lấy danh sách Fanpage từ Token trên", key="btn_get_accounts_manual"):
+                clean_lt = str(manual_long_token_input or "").strip()
+                if not clean_lt:
+                    st.warning("⚠️ Vui lòng dán User Token dài hạn!")
+                else:
+                    try:
+                        with st.spinner("Đang tải danh sách Fanpage..."):
+                            accs = FacebookService.get_user_accounts(user_access_token=clean_lt)
+                            st.session_state["tool_found_pages"] = accs
+                            st.success(f"✅ Tìm thấy {len(accs)} Fanpage!")
+                            st.rerun()
+                    except Exception as ex:
+                        st.error(f"❌ Lỗi: {ex}")
+
+        with st.expander("🔑 Bước 3: Đổi trực tiếp Page Token ngắn → vĩnh viễn"):
+            short_page_tok_input = st.text_input(
+                "Page Token ngắn hạn:",
+                value="",
+                type="password",
+                key="short_page_tok_input",
+                placeholder="Dán Page Token ngắn hạn...",
+            )
+            if st.button("🔄 Đổi Page Token sang vĩnh viễn", key="btn_exchange_page_token_direct"):
+                clean_app_id = str(tool_app_id or "").strip()
+                clean_app_secret = str(tool_app_secret or "").strip()
+                clean_p_tok = str(short_page_tok_input or "").strip()
+                if not clean_app_id or not clean_app_secret or not clean_p_tok:
+                    st.error("❌ Vui lòng điền đủ App ID, App Secret và Page Token ngắn!")
+                else:
+                    try:
+                        with st.spinner("Đang đổi Page Token..."):
+                            res_pt = FacebookService.exchange_page_token_to_never_expire(
+                                app_id=clean_app_id,
+                                app_secret=clean_app_secret,
+                                short_page_token=clean_p_tok,
+                            )
+                            perm_tok = res_pt.get("access_token")
+                            st.session_state["tool_direct_perm_token"] = perm_tok
+                            st.success("✅ Đã đổi sang Page Token vĩnh viễn thành công!")
+                    except Exception as ex:
+                        st.error(f"❌ Lỗi: {ex}")
+
+            if st.session_state.get("tool_direct_perm_token"):
+                st.markdown("**Page Token vĩnh viễn của bạn:**")
+                st.code(st.session_state["tool_direct_perm_token"], language="text")
+
+    with tool_col2:
+        st.markdown("##### **2️⃣ Kết quả & Danh sách Fanpage tìm được**")
+
+        long_tok = st.session_state.get("tool_long_token")
+        if long_tok:
+            exp_sec = st.session_state.get("tool_long_expires", 5184000)
+            exp_days = round(exp_sec / 86400, 1) if exp_sec else 60
+            st.info(f"⏳ **User Token 60 ngày:** Đã tạo thành công (hiệu lực ~{exp_days} ngày).")
+            with st.expander("👁️ Xem chuỗi User Token 60 ngày"):
+                st.code(long_tok, language="text")
+
+        found_pages = st.session_state.get("tool_found_pages", [])
+        if found_pages:
+            st.markdown(f"**Danh sách Fanpages có quyền quản lý ({len(found_pages)}):**")
+            for p_idx, page in enumerate(found_pages):
+                pid = page.get("id", "")
+                pname = page.get("name", "Không rõ")
+                ptok = page.get("access_token", "")
+                category = page.get("category", "")
+                is_target = (pid == "619960427857965")
+
+                border_color = "#10b981" if is_target else "#334155"
+                badge = " 🎯 [Sửa Máy Tính BMT]" if is_target else ""
+
+                st.markdown(f"**{pname}**{badge}  \n`ID: {pid}` {f'| Danh mục: {category}' if category else ''}")
+
+                with st.expander(f"🔑 Xem Page Token vĩnh viễn của `{pname}`"):
+                    st.code(ptok, language="text")
+
+                btn_c1, btn_c2 = st.columns(2)
+                with btn_c1:
+                    if st.button(f"➕ Thêm vào Quản trị Fanpage", key=f"add_db_p_{pid}_{p_idx}", use_container_width=True):
+                        try:
+                            db_manager.add_fanpage(page_id=pid, page_name=pname, access_token=ptok, is_active=1)
+                            st.success(f"✅ Đã thêm '{pname}' vào Quản trị Fanpages thành công!")
+                            st.rerun()
+                        except Exception as ex:
+                            st.error(f"❌ Lỗi lưu Fanpage vào DB: {ex}")
+
+                with btn_c2:
+                    if st.button(f"📌 Đặt làm Page chính (.env)", key=f"set_env_p_{pid}_{p_idx}", use_container_width=True):
+                        try:
+                            save_env_config({"FB_PAGE_ID": pid, "FB_PAGE_ACCESS_TOKEN": ptok}, env_path=".env")
+                            st.session_state.fb_page_name = pname
+                            st.success(f"✅ Đã đặt '{pname}' làm Fanpage chính trong `.env`!")
+                            st.rerun()
+                        except Exception as ex:
+                            st.error(f"❌ Lỗi lưu vào .env: {ex}")
+                st.markdown("---")
+        else:
+            st.info("Chưa có danh sách Fanpage. Hãy nhập App ID, App Secret và Token ngắn hạn ở bên trái rồi bấm **'🚀 1-Click: Đổi Token & Lấy tất cả Fanpages'**.")

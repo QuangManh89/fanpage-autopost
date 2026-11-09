@@ -168,3 +168,56 @@ def test_multi_fanpage_auto_migration_and_tab(monkeypatch, tmp_path):
     assert fps[0]["page_id"] in ("9988776655", "619960427857965")
     assert fps[0]["is_active"] == 1
 
+
+
+
+def test_tab5_fb_token_tool_exchange_and_add_to_db(monkeypatch, tmp_path):
+    """Verify FB Token Tool in Tab 5 exchanges token, displays pages, and adds to SQLite."""
+    import streamlit as st
+    from unittest.mock import patch
+    st.cache_resource.clear()
+    test_db_path = str(tmp_path / "test_fb_tool.db")
+    monkeypatch.setenv("DB_PATH", test_db_path)
+    monkeypatch.setenv("GEMINI_API_KEY", "mock_gemini_key")
+    monkeypatch.setenv("FB_PAGE_ID", "123456789")
+    monkeypatch.setenv("FB_PAGE_ACCESS_TOKEN", "mock_token")
+    monkeypatch.setenv("FB_APP_ID", "3711376692339694")
+    monkeypatch.setenv("FB_APP_SECRET", "test_secret_32chars")
+
+    mock_long_res = {"access_token": "EAAB_mock_long_user_token", "expires_in": 5184000}
+    mock_accounts = [
+        {
+            "id": "619960427857965",
+            "name": "Sửa Máy Tính Tại Nhà BMT",
+            "access_token": "EAAB_mock_permanent_page_token",
+            "category": "Computer Repair",
+        }
+    ]
+
+    with patch("src.facebook_service.FacebookService.exchange_token_to_long_lived", return_value=mock_long_res), \
+         patch("src.facebook_service.FacebookService.get_user_accounts", return_value=mock_accounts):
+
+        app_path = os.path.abspath("app.py")
+        at = AppTest.from_file(app_path, default_timeout=15)
+        at.run()
+        assert not at.exception
+
+        at.text_area(key="fb_tool_short_token").input("EAA_short_lived_user_tok").run()
+        assert not at.exception
+
+        at.button(key="fb_tool_btn_exchange_all").click().run()
+        assert not at.exception
+
+        assert at.session_state["tool_long_token"] == "EAAB_mock_long_user_token"
+        assert len(at.session_state["tool_found_pages"]) == 1
+        assert at.session_state["tool_found_pages"][0]["id"] == "619960427857965"
+
+        at.button(key="add_db_p_619960427857965_0").click().run()
+        assert not at.exception
+
+        db = DatabaseManager(db_path=test_db_path)
+        fps = db.get_fanpages()
+        target_fp = next((fp for fp in fps if fp["page_id"] == "619960427857965"), None)
+        assert target_fp is not None
+        assert target_fp["page_name"] == "Sửa Máy Tính Tại Nhà BMT"
+        assert target_fp["access_token"] == "EAAB_mock_permanent_page_token"

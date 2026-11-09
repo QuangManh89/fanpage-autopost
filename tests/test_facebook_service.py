@@ -459,3 +459,77 @@ class TestFacebookServiceGetPostInfo:
         with pytest.raises(FileNotFoundError):
             fb_service.publish_multi_photo_post("message", ["non_existent_1.png", "non_existent_2.png"])
 
+    @patch("requests.get")
+    def test_exchange_token_to_long_lived_success(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "access_token": "EAAB_long_lived_user_token_60d",
+            "token_type": "bearer",
+            "expires_in": 5184000,
+        }
+        mock_get.return_value = mock_resp
+
+        result = FacebookService.exchange_token_to_long_lived(
+            app_id="123456",
+            app_secret="abcdef32charssecret",
+            short_token="EAAB_short_token",
+        )
+
+        assert result["access_token"] == "EAAB_long_lived_user_token_60d"
+        mock_get.assert_called_once()
+        args, kwargs = mock_get.call_args
+        assert "oauth/access_token" in args[0]
+        assert kwargs["params"]["grant_type"] == "fb_exchange_token"
+        assert kwargs["params"]["client_id"] == "123456"
+
+    def test_exchange_token_missing_params_raises(self):
+        with pytest.raises(ValueError, match="đầy đủ"):
+            FacebookService.exchange_token_to_long_lived("", "secret", "tok")
+        with pytest.raises(ValueError, match="đầy đủ"):
+            FacebookService.exchange_token_to_long_lived("app", "", "tok")
+        with pytest.raises(ValueError, match="đầy đủ"):
+            FacebookService.exchange_token_to_long_lived("app", "secret", "")
+
+    @patch("requests.get")
+    def test_get_user_accounts_success(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "data": [
+                {
+                    "id": "619960427857965",
+                    "name": "Sửa Máy Tính Tại Nhà BMT",
+                    "access_token": "EAAB_permanent_page_token",
+                    "tasks": ["MANAGE", "CREATE_CONTENT"],
+                }
+            ]
+        }
+        mock_get.return_value = mock_resp
+
+        accounts = FacebookService.get_user_accounts(user_access_token="EAAB_long_user_tok")
+        assert len(accounts) == 1
+        assert accounts[0]["id"] == "619960427857965"
+        assert accounts[0]["name"] == "Sửa Máy Tính Tại Nhà BMT"
+        assert accounts[0]["access_token"] == "EAAB_permanent_page_token"
+
+        mock_get.assert_called_once()
+        args, kwargs = mock_get.call_args
+        assert "me/accounts" in args[0]
+        assert kwargs["params"]["access_token"] == "EAAB_long_user_tok"
+
+    def test_get_user_accounts_empty_token_raises(self):
+        with pytest.raises(ValueError, match="User Access Token"):
+            FacebookService.get_user_accounts("")
+
+    @patch("requests.get")
+    def test_exchange_page_token_to_never_expire(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"access_token": "EAAB_perm_page_token"}
+        mock_get.return_value = mock_resp
+
+        res = FacebookService.exchange_page_token_to_never_expire("app_id", "secret", "short_page_tok")
+        assert res["access_token"] == "EAAB_perm_page_token"
+
+
