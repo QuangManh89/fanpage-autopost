@@ -197,6 +197,39 @@ if "fb_page_name" not in st.session_state:
 # Load current credentials from .env
 env_config = load_env_config()
 
+
+def check_app_password() -> bool:
+    """Xác thực mật khẩu ứng dụng nếu APP_PASSWORD được thiết lập."""
+    app_pwd = os.environ.get("APP_PASSWORD") or env_config.get("APP_PASSWORD", "")
+    app_pwd = str(app_pwd).strip()
+
+    # Nếu không đặt mật khẩu, cho phép truy cập trực tiếp
+    if not app_pwd:
+        return True
+
+    if st.session_state.get("authenticated", False):
+        return True
+
+    st.markdown('<div class="main-title">🔒 Facebook Fanpage Auto-Poster</div>', unsafe_allow_html=True)
+    st.markdown('<div class="subtitle">Ứng dụng được bảo vệ bằng mật khẩu quản trị. Vui lòng đăng nhập để tiếp tục.</div>', unsafe_allow_html=True)
+
+    with st.form("auth_login_form"):
+        pwd_input = st.text_input("Mật khẩu truy cập ứng dụng:", type="password", placeholder="Nhập mật khẩu...", key="pwd_login_input")
+        login_btn = st.form_submit_button("🔓 Mở khóa bảng điều khiển", type="primary", use_container_width=True)
+
+        if login_btn:
+            if pwd_input == app_pwd:
+                st.session_state.authenticated = True
+                st.success("✅ Mật khẩu chính xác! Đang mở ứng dụng...")
+                st.rerun()
+            else:
+                st.error("❌ Mật khẩu không chính xác! Vui lòng thử lại.")
+    return False
+
+
+if not check_app_password():
+    st.stop()
+
 # Auto-migrate credentials from .env to SQLite fanpages table if available
 if env_config.get("FB_PAGE_ID") and env_config.get("FB_PAGE_ACCESS_TOKEN"):
     try:
@@ -246,6 +279,12 @@ with st.sidebar:
         st.info("🟢 Local Scheduler: Đang chạy ngầm", icon="💻")
     else:
         st.error("🔴 Local Scheduler: Tạm dừng", icon="🛑")
+
+    active_pwd = os.environ.get("APP_PASSWORD") or env_config.get("APP_PASSWORD")
+    if active_pwd and st.session_state.get("authenticated", False):
+        if st.button("🔒 Đăng xuất", key="btn_logout", use_container_width=True):
+            st.session_state.authenticated = False
+            st.rerun()
 
     st.markdown("---")
     st.caption("Hệ thống tự động hóa đăng bài chuyên nghiệp.")
@@ -1198,6 +1237,13 @@ with tab5:
                 help="Mã truy cập trang Fanpage có quyền pages_manage_posts và pages_read_engagement.",
             )
 
+            app_password_input = st.text_input(
+                "Mật khẩu bảo vệ Web (APP_PASSWORD):",
+                value=env_config.get("APP_PASSWORD", ""),
+                type="password",
+                help="Mật khẩu bảo vệ khi triển khai lên Render/Internet. Để trống nếu không muốn dùng mật khẩu.",
+            )
+
             save_settings_btn = st.form_submit_button("💾 Lưu cấu hình vào file .env", type="primary", use_container_width=True)
 
             if save_settings_btn:
@@ -1208,6 +1254,7 @@ with tab5:
                     "FB_APP_SECRET": str(fb_app_secret_input or "").strip(),
                     "FB_PAGE_ID": str(fb_page_id_input or "").strip(),
                     "FB_PAGE_ACCESS_TOKEN": str(fb_token_input or "").strip(),
+                    "APP_PASSWORD": str(app_password_input or "").strip(),
                 }
                 success = save_env_config(updates, env_path=".env")
                 if success:

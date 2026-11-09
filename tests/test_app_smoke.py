@@ -220,3 +220,41 @@ def test_tab5_fb_token_tool_exchange_and_add_to_db(monkeypatch, tmp_path):
         assert target_fp is not None
         assert target_fp["page_name"] == "Sửa Máy Tính Tại Nhà BMT"
         assert target_fp["access_token"] == "EAAB_mock_permanent_page_token"
+
+
+
+def test_app_password_gate_and_unlock(monkeypatch, tmp_path):
+    """Verify that setting APP_PASSWORD displays the login gate and unlocking reveals the dashboard."""
+    import streamlit as st
+    st.cache_resource.clear()
+    test_db_path = str(tmp_path / "test_auth_gate.db")
+    monkeypatch.setenv("DB_PATH", test_db_path)
+    monkeypatch.setenv("GEMINI_API_KEY", "mock_gemini_key")
+    monkeypatch.setenv("FB_PAGE_ID", "123456789")
+    monkeypatch.setenv("FB_PAGE_ACCESS_TOKEN", "mock_fb_access_token")
+    monkeypatch.setenv("APP_PASSWORD", "SecretPass2026")
+
+    app_path = os.path.abspath("app.py")
+    at = AppTest.from_file(app_path, default_timeout=15)
+    at.run()
+    assert not at.exception
+
+    # Gate is active, tabs are not rendered
+    assert len(at.tabs) == 0
+
+    # Wrong password attempt
+    at.text_input(key="pwd_login_input").input("WrongPassword").run()
+    # Find submit button in login form
+    login_btn = next(b for b in at.button if "Mở khóa bảng điều khiển" in b.label)
+    login_btn.click().run()
+    assert not at.exception
+    assert at.session_state.get("authenticated") is not True
+    assert len(at.tabs) == 0
+
+    # Correct password attempt
+    at.text_input(key="pwd_login_input").input("SecretPass2026").run()
+    login_btn = next(b for b in at.button if "Mở khóa bảng điều khiển" in b.label)
+    login_btn.click().run()
+    assert not at.exception
+    assert at.session_state.get("authenticated") is True
+    assert len(at.tabs) == 5

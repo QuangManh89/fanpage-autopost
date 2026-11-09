@@ -185,6 +185,7 @@ def test_save_and_load_env_config(tmp_path, monkeypatch):
         "OPENROUTER_API_KEY": "sk-or-v1-abc",
         "FB_PAGE_ID": "100200300400",
         "FB_PAGE_ACCESS_TOKEN": "EAAXsampletoken",
+        "APP_PASSWORD": "SecretPassword123",
     }
     success = save_env_config(configs, env_path=str(env_file))
     assert success is True
@@ -196,6 +197,7 @@ def test_save_and_load_env_config(tmp_path, monkeypatch):
     assert loaded["OPENROUTER_API_KEY"] == "sk-or-v1-abc"
     assert loaded["FB_PAGE_ID"] == "100200300400"
     assert loaded["FB_PAGE_ACCESS_TOKEN"] == "EAAXsampletoken"
+    assert loaded["APP_PASSWORD"] == "SecretPassword123"
 
     # os.environ should also be updated
     assert os.environ.get("GEMINI_API_KEY") == "AIzaSyTestKey123"

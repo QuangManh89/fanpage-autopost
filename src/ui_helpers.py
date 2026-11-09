@@ -282,6 +282,7 @@ def load_env_config(env_path: str = ".env") -> dict[str, str]:
         "FB_PAGE_ACCESS_TOKEN",
         "FB_APP_ID",
         "FB_APP_SECRET",
+        "APP_PASSWORD",
     ]
     result: dict[str, str] = {}
     for key in keys:
