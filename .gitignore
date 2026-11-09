@@ -24,3 +24,8 @@ data/uploads/
 # IDE / VS Code
 .vscode/
 .idea/
+
+# Local agent tooling
+.agents/
+.claude/
+.opencode/
