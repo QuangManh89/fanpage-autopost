@@ -258,3 +258,42 @@ def test_app_password_gate_and_unlock(monkeypatch, tmp_path):
     assert not at.exception
     assert at.session_state.get("authenticated") is True
     assert len(at.tabs) == 5
+
+
+
+def test_app_humanize_rewrite_and_undo(monkeypatch, tmp_path):
+    """Verify Humanize AI rewrite button updates content and undo button restores previous content."""
+    import streamlit as st
+    from unittest.mock import patch
+    st.cache_resource.clear()
+    test_db_path = str(tmp_path / "test_humanize.db")
+    monkeypatch.setenv("DB_PATH", test_db_path)
+    monkeypatch.setenv("GEMINI_API_KEY", "mock_gemini_key")
+    monkeypatch.setenv("FB_PAGE_ID", "123456789")
+    monkeypatch.setenv("FB_PAGE_ACCESS_TOKEN", "mock_fb_access_token")
+
+    with patch("src.gemini_service.GeminiService.rewrite_content", return_value="Nội dung đã được biên tập mượt mà như người thật."):
+        app_path = os.path.abspath("app.py")
+        at = AppTest.from_file(app_path, default_timeout=15)
+        at.run()
+        assert not at.exception
+
+        # Input initial content
+        original_text = "Nội dung ban đầu hơi máy móc và đều câu."
+        at.text_area(key="content_editor_area").input(original_text).run()
+        assert not at.exception
+
+        # Click rewrite button
+        at.button(key="btn_do_rewrite").click().run()
+        assert not at.exception
+
+        # Verify content was updated and previous content stored
+        assert at.session_state["post_content"] == "Nội dung đã được biên tập mượt mà như người thật."
+        assert at.session_state["previous_post_content"] == original_text
+
+        # Click undo button
+        at.button(key="btn_undo_rewrite").click().run()
+        assert not at.exception
+
+        # Verify previous content was restored
+        assert at.session_state["post_content"] == original_text

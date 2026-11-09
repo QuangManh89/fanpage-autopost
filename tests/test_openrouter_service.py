@@ -265,3 +265,38 @@ def test_generate_fanpage_post_null_content_reasoning_fallback():
         res = service.generate_fanpage_post(topic="Bảo vệ máy tính", use_search=False)
         assert "BẬT MÍ CÁCH" in res["content"]
         assert "#TechTips" in res["suggested_hashtags"]
+
+
+
+def test_rewrite_content_empty_raises():
+    """Test that rewrite_content raises ValueError on empty content."""
+    service = OpenRouterService(api_key="sk-or-test")
+    with pytest.raises(ValueError, match="không được để trống"):
+        service.rewrite_content("")
+    with pytest.raises(ValueError, match="không được để trống"):
+        service.rewrite_content("   ")
+
+
+def test_rewrite_content_success():
+    """Test successful content rewriting with OpenRouter."""
+    service = OpenRouterService(api_key="sk-or-test")
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "Bản viết lại cực kỳ tự nhiên không máy móc.",
+                }
+            }
+        ]
+    }
+
+    with patch("requests.post", return_value=mock_resp) as mock_post:
+        rewritten = service.rewrite_content("Nội dung ban đầu.", style_key="natural_rhythm")
+        assert rewritten == "Bản viết lại cực kỳ tự nhiên không máy móc."
+        assert mock_post.called
+        payload = mock_post.call_args[1]["json"]
+        user_msg = payload["messages"][1]["content"]
+        assert "Viết lại văn bản này theo cách phản ánh cách con người thực sự suy nghĩ" in user_msg

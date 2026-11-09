@@ -19,7 +19,7 @@ from src.facebook_service import (
     FacebookService,
     FacebookTokenError,
 )
-from src.gemini_service import GeminiService
+from src.gemini_service import GeminiService, REWRITE_STYLES
 from src.openrouter_service import OpenRouterService
 from src.scheduler_service import LocalSchedulerService
 from src.ui_helpers import (
@@ -181,6 +181,10 @@ if "topic_input_area" not in st.session_state:
     st.session_state.topic_input_area = ""
 if "post_content" not in st.session_state:
     st.session_state.post_content = ""
+if "previous_post_content" not in st.session_state:
+    st.session_state.previous_post_content = None
+if "pending_rewrite_text" not in st.session_state:
+    st.session_state.pending_rewrite_text = None
 if "content_editor_area" not in st.session_state:
     st.session_state.content_editor_area = ""
 if "post_image_path" not in st.session_state:
@@ -492,6 +496,11 @@ with tab1:
 
         st.markdown("---")
         st.markdown("#### **Soạn thảo & Chỉnh sửa nội dung trước khi đăng**")
+        if st.session_state.get("pending_rewrite_text") is not None:
+            st.session_state.post_content = st.session_state.pending_rewrite_text
+            st.session_state.content_editor_area = st.session_state.pending_rewrite_text
+            st.session_state.pending_rewrite_text = None
+
         edited_content = st.text_area(
             "Nội dung bài viết (Hỗ trợ Markdown / Emoji):",
             key="content_editor_area",
@@ -500,6 +509,87 @@ with tab1:
         )
         # Update session state content
         st.session_state.post_content = edited_content
+
+        # Humanize AI Rewrite Section
+        with st.expander("✍️ **Tinh chỉnh & Viết lại như người thật (Humanize AI)**", expanded=False):
+            st.caption("Biên tập lại câu chữ để loại bỏ văn phong máy móc, sáo rỗng theo 6 phong cách chuyên sâu.")
+
+            style_keys = list(REWRITE_STYLES.keys())
+            chosen_style_key = st.selectbox(
+                "Chọn phong cách biên tập:",
+                options=style_keys,
+                format_func=lambda k: REWRITE_STYLES[k]["name"],
+                key="select_rewrite_style",
+                help="Chọn phong cách phù hợp nhất với bài viết của bạn.",
+            )
+            st.caption(f"💡 *Mục tiêu:* {REWRITE_STYLES[chosen_style_key]['description']}")
+
+            rewrite_col1, rewrite_col2 = st.columns([2, 1])
+            with rewrite_col1:
+                btn_rewrite = st.button("🚀 Viết lại bài viết này", type="primary", use_container_width=True, key="btn_do_rewrite")
+            with rewrite_col2:
+                has_prev = bool(st.session_state.get("previous_post_content"))
+                btn_undo = st.button("↩️ Hoàn tác bản cũ", disabled=not has_prev, use_container_width=True, key="btn_undo_rewrite")
+
+            if btn_undo and has_prev:
+                current_c = st.session_state.post_content
+                st.session_state.pending_rewrite_text = st.session_state.previous_post_content
+                st.session_state.previous_post_content = current_c
+                st.rerun()
+
+            if btn_rewrite:
+                current_to_rewrite = str(st.session_state.post_content or "").strip()
+                if not current_to_rewrite:
+                    st.warning("⚠️ Chưa có nội dung trong ô soạn thảo để viết lại.")
+                else:
+                    gemini_k = str(env_config.get("GEMINI_API_KEY") or "").strip()
+                    or_k = str(env_config.get("OPENROUTER_API_KEY") or "").strip()
+
+                    rw_provider = ai_provider
+                    rw_model = selected_ai_model
+
+                    with st.spinner(f"🔍 Đang dùng {rw_provider} biên tập lại theo phong cách '{REWRITE_STYLES[chosen_style_key]['name']}'..."):
+                        rw_success = False
+                        rw_result = ""
+                        rw_err = None
+
+                        try:
+                            if rw_provider == "OpenRouter":
+                                if not or_k:
+                                    raise ValueError("Chưa có OpenRouter API Key.")
+                                or_rw_svc = OpenRouterService(api_key=or_k, model=rw_model)
+                                rw_result = or_rw_svc.rewrite_content(current_to_rewrite, style_key=chosen_style_key)
+                            else:
+                                if not gemini_k:
+                                    raise ValueError("Chưa có Gemini API Key.")
+                                gem_rw_svc = GeminiService(api_key=gemini_k, model=rw_model)
+                                rw_result = gem_rw_svc.rewrite_content(current_to_rewrite, style_key=chosen_style_key)
+                            rw_success = True
+                        except Exception as ex_rw:
+                            rw_err = ex_rw
+
+                        if not rw_success and auto_fallback:
+                            alt_provider = "Google Gemini" if rw_provider == "OpenRouter" else "OpenRouter"
+                            alt_key = gemini_k if alt_provider == "Google Gemini" else or_k
+                            if alt_key:
+                                try:
+                                    with st.spinner(f"🔄 Đang kích hoạt dự phòng qua {alt_provider}..."):
+                                        if alt_provider == "Google Gemini":
+                                            gem_alt = GeminiService(api_key=gemini_k)
+                                            rw_result = gem_alt.rewrite_content(current_to_rewrite, style_key=chosen_style_key)
+                                        else:
+                                            or_alt = OpenRouterService(api_key=or_k)
+                                            rw_result = or_alt.rewrite_content(current_to_rewrite, style_key=chosen_style_key)
+                                        rw_success = True
+                                except Exception as alt_ex:
+                                    st.error(f"❌ Nguồn dự phòng cũng gặp lỗi: {alt_ex}")
+
+                        if rw_success and rw_result:
+                            st.session_state.previous_post_content = current_to_rewrite
+                            st.session_state.pending_rewrite_text = rw_result
+                            st.rerun()
+                        elif not rw_success:
+                            st.error(f"❌ Lỗi khi viết lại văn bản: {rw_err}")
 
         action_col1, action_col2 = st.columns(2)
         with action_col1:

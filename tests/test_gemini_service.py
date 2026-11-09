@@ -219,3 +219,28 @@ def test_generate_fanpage_post_deduplicates_sources(mock_genai_client):
         "https://example.com/duplicate",
         "https://example.com/unique",
     ]
+
+
+
+def test_rewrite_content_empty_raises(mock_genai_client):
+    """Test that rewrite_content raises ValueError on empty content."""
+    service = GeminiService(api_key="test-key", client=mock_genai_client)
+    with pytest.raises(ValueError, match="không được để trống"):
+        service.rewrite_content("")
+    with pytest.raises(ValueError, match="không được để trống"):
+        service.rewrite_content("   ")
+
+
+def test_rewrite_content_success(mock_genai_client):
+    """Test successful content rewriting with Gemini across styles."""
+    mock_response = MagicMock()
+    mock_response.text = "Bản viết lại cực kỳ tự nhiên như người thật."
+    mock_genai_client.models.generate_content.return_value = mock_response
+
+    service = GeminiService(api_key="test-key", client=mock_genai_client)
+    rewritten = service.rewrite_content("Văn bản ban đầu có phần máy móc.", style_key="human_editor")
+
+    assert rewritten == "Bản viết lại cực kỳ tự nhiên như người thật."
+    mock_genai_client.models.generate_content.assert_called_once()
+    call_args = mock_genai_client.models.generate_content.call_args
+    assert "Hãy đóng vai một biên tập viên con người" in call_args.kwargs["contents"]

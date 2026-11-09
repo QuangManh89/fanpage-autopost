@@ -2,6 +2,7 @@ import os
 import re
 from typing import Any
 import requests
+from src.gemini_service import REWRITE_STYLES
 
 
 class OpenRouterService:
@@ -200,23 +201,23 @@ class OpenRouterService:
             else "5. Hashtags: KHÔNG thêm bất kỳ hashtag (#) nào vào bài viết."
         )
 
-        return f"""Bạn là một chuyên gia sáng tạo nội dung mạng xã hội (Facebook Content Creator) chuyên nghiệp và xuất sắc.
+        return f"""Bạn là một người sáng tạo nội dung mạng xã hội (Facebook Content Creator) xuất sắc, viết bài tự nhiên như một con người thực sự có chuyên môn sâu về chủ đề này.
 Hãy viết một bài đăng Facebook Fanpage hoàn chỉnh, cuốn hút, chuẩn viral về chủ đề sau:
 
 Chủ đề: {topic}
 Giọng văn (Tone): {tone}
-Ngôn ngữ: Tiếng Việt tự nhiên, phù hợp với phong cách đọc của người dùng Facebook tại Việt Nam.
+Ngôn ngữ: Tiếng Việt tự nhiên, phù hợp với phong cách đọc và thói quen lướt Facebook tại Việt Nam.
 
-Cấu trúc bài viết bắt buộc:
-1. Tiêu đề / Hook: Giật gân, gợi sự tò mò, bắt mắt với emoji phù hợp nhằm thu hút người đọc trong 3 giây đầu tiên.
-2. Vấn đề thực tế: Nêu bật vấn đề hoặc nỗi đau mà độc giả đang gặp phải một cách gần gũi.
-3. Nội dung chính / Giải pháp: Trình bày các ý ngắn gọn, rõ ràng theo dạng gạch đầu dòng có emoji minh họa, dễ nắm bắt khi lướt newsfeed.
-4. Kêu gọi hành động (Call to Action): Kêu gọi like, share, để lại bình luận hoặc nhắn tin tư vấn nhiệt tình.
+Quy tắc văn phong người thật (BẮT BUỘC):
+1. Tiêu đề / Hook: Thu hút ngay trong 3 giây đầu tiên, đánh trúng tâm lý, tò mò hoặc sự chú ý thực tế của người đọc.
+2. Nhịp văn tự nhiên: Xen kẽ câu ngắn và câu dài, ngắt nhịp thở tự nhiên như người thật đang trò chuyện hoặc chia sẻ góc nhìn.
+3. Tránh tuyệt đối văn phong AI máy móc: KHÔNG dùng các câu mở đầu sáo rỗng (như 'Trong thời đại số...', 'Bạn có biết rằng...'), KHÔNG dùng câu chuyển ý cứng nhắc, KHÔNG ép buộc mọi đoạn đều phải có gạch đầu dòng và emoji giống hệt nhau.
+4. Kêu gọi hành động (CTA): Tự nhiên, kích thích bình luận, chia sẻ quan điểm hoặc nhắn tin tư vấn mà không mang cảm giác gượng gạo.
 {hashtag_instruction}
 
 Lưu ý quan trọng:
 - Bài viết phải hoàn chỉnh, có thể đăng ngay lên Fanpage.
-- Không đưa vào các lời dẫn kỹ thuật hay ghi chú ngoài lề (như "Dưới đây là bài viết...").
+- Không đưa vào các lời dẫn kỹ thuật hay ghi chú ngoài lề (như 'Dưới đây là bài viết...').
 """
 
     def _extract_hashtags(self, text: str) -> list[str]:
@@ -316,5 +317,67 @@ Lưu ý quan trọng:
                 "suggested_hashtags": hashtags,
             }
 
+        except requests.RequestException as e:
+            raise RuntimeError(f"Lỗi kết nối tới OpenRouter: {str(e)}")
+
+    def rewrite_content(self, content: str, style_key: str = "final_polish") -> str:
+        """Biên tập và viết lại văn bản theo phong cách người thật qua OpenRouter.
+
+        Args:
+            content: Nội dung văn bản hiện tại cần biên tập.
+            style_key: Khóa phong cách biên tập trong REWRITE_STYLES.
+
+        Returns:
+            Văn bản đã được biên tập tự nhiên như người thật.
+        """
+        if not content or not str(content).strip():
+            raise ValueError("Nội dung bài viết không được để trống khi yêu cầu biên tập lại.")
+
+        style = REWRITE_STYLES.get(style_key, REWRITE_STYLES["final_polish"])
+        prompt = f"{style['prompt']}\n{str(content).strip()}"
+
+        headers = self._get_headers()
+        payload = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "Bạn là một biên tập viên con người xuất sắc, chuyên gia làm mượt và nhân bản hóa văn phong (Humanize AI text). "
+                        "Chỉ trả về trực tiếp nội dung bài viết đã viết lại, không thêm lời chào, giải thích hay định dạng thừa bên ngoài."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.75,
+        }
+
+        try:
+            res = requests.post(
+                f"{self.BASE_URL}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=60,
+            )
+            data = res.json()
+
+            if res.status_code != 200:
+                err_msg = data.get("error", {}).get("message", f"OpenRouter HTTP {res.status_code}")
+                raise RuntimeError(f"Lỗi OpenRouter: {err_msg}")
+
+            choices = data.get("choices", [])
+            if not choices:
+                raise RuntimeError("OpenRouter không trả về nội dung lựa chọn.")
+
+            msg = choices[0].get("message", {}) or {}
+            raw_content = msg.get("content")
+            if not raw_content:
+                raw_content = msg.get("reasoning") or msg.get("reasoning_content") or ""
+
+            rewritten_text = str(raw_content or "").strip()
+            if not rewritten_text:
+                raise RuntimeError("OpenRouter trả về nội dung rỗng.")
+
+            return rewritten_text
         except requests.RequestException as e:
             raise RuntimeError(f"Lỗi kết nối tới OpenRouter: {str(e)}")
