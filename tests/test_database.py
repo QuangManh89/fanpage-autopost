@@ -279,3 +279,37 @@ def test_database_migration_from_legacy_schema(tmp_path):
     assert posts[0]["page_id"] is None
 
 
+
+
+def test_fanpage_default_hashtags_and_presets(tmp_path):
+    from src.database import DatabaseManager, get_preset_hashtags_for_page
+
+    # Check preset helper
+    conic_tags = get_preset_hashtags_for_page("Sửa Laptop Conic", "111")
+    assert "#q8" in conic_tags
+    assert "#Conic" in conic_tags
+
+    bmt_tags = get_preset_hashtags_for_page("Sửa Máy Tính Tại Nhà BMT", "619960427857965")
+    assert "#Bmt" in bmt_tags
+    assert "#BuonMaThuot" in bmt_tags
+
+    other_tags = get_preset_hashtags_for_page("Trang Tin Mới", "999")
+    assert other_tags == ""
+
+    # Test adding and updating default_hashtags in DB
+    db_file = tmp_path / "fp_hashtags.db"
+    manager = DatabaseManager(db_path=str(db_file))
+
+    manager.add_fanpage(
+        page_id="101010",
+        page_name="Sửa Laptop Conic",
+        access_token="tok1",
+        default_hashtags="#q8 #q4 #Conic",
+    )
+    fp = manager.get_fanpage_by_page_id("101010")
+    assert fp is not None
+    assert fp["default_hashtags"] == "#q8 #q4 #Conic"
+
+    manager.update_fanpage("101010", default_hashtags="#q8 #q4 #q6 #Conic")
+    fp_updated = manager.get_fanpage_by_page_id("101010")
+    assert fp_updated["default_hashtags"] == "#q8 #q4 #q6 #Conic"

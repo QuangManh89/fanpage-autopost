@@ -297,3 +297,33 @@ def test_app_humanize_rewrite_and_undo(monkeypatch, tmp_path):
 
         # Verify previous content was restored
         assert at.session_state["post_content"] == original_text
+
+
+def test_app_fanpage_target_and_hashtag_rendering(monkeypatch, tmp_path):
+    """Verify target fanpage selection and hashtag badge render properly."""
+    import streamlit as st
+    st.cache_resource.clear()
+    test_db_path = str(tmp_path / "test_target_fp.db")
+    monkeypatch.setenv("DB_PATH", test_db_path)
+    monkeypatch.setenv("GEMINI_API_KEY", "mock_gemini_key")
+    monkeypatch.setenv("FB_PAGE_ID", "123456789")
+    monkeypatch.setenv("FB_PAGE_ACCESS_TOKEN", "mock_fb_access_token")
+
+    # Seed a fanpage with default hashtags
+    db = DatabaseManager(db_path=test_db_path)
+    db.add_fanpage(
+        page_id="conic_123",
+        page_name="Sửa Laptop Conic",
+        access_token="tok_conic",
+        default_hashtags="#q8 #q4 #q6 #BinhChanh #Conic",
+    )
+
+    app_path = os.path.abspath("app.py")
+    at = AppTest.from_file(app_path, default_timeout=15)
+    at.run()
+    assert not at.exception
+
+    # Verify selectbox for target fanpage exists in Tab 1
+    fp_select = next((s for s in at.selectbox if "Fanpage mục tiêu" in (s.label or "")), None)
+    assert fp_select is not None
+    assert any("Sửa Laptop Conic" in opt for opt in fp_select.options)

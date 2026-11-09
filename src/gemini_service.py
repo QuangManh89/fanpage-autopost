@@ -139,14 +139,27 @@ class GeminiService:
             self.client = genai.Client(api_key=self.api_key)
 
     def _build_prompt(
-        self, topic: str, tone: str, include_hashtags: bool
+        self,
+        topic: str,
+        tone: str,
+        include_hashtags: bool,
+        target_hashtags: str | None = None,
+        target_page_name: str | None = None,
     ) -> str:
         """Construct an optimized prompt for generating a viral Facebook Fanpage post."""
-        hashtag_instruction = (
-            "5. Hashtags: Thêm cụm 3-7 hashtags thịnh hành và liên quan mật thiết ở cuối bài viết."
-            if include_hashtags
-            else "5. Hashtags: KHÔNG thêm bất kỳ hashtag (#) nào vào bài viết."
-        )
+        if include_hashtags:
+            if target_hashtags and str(target_hashtags).strip():
+                clean_target_tags = str(target_hashtags).strip()
+                page_info = f" cho Fanpage '{target_page_name}'" if target_page_name else ""
+                hashtag_instruction = (
+                    f"5. Hashtags: Thêm cụm 3-7 hashtags thịnh hành về chủ đề VÀ BẮT BUỘC bao gồm các hashtag khu vực địa phương sau{page_info}: {clean_target_tags} ở cuối bài viết."
+                )
+            else:
+                hashtag_instruction = (
+                    "5. Hashtags: Thêm cụm 3-7 hashtags thịnh hành và liên quan mật thiết ở cuối bài viết."
+                )
+        else:
+            hashtag_instruction = "5. Hashtags: KHÔNG thêm bất kỳ hashtag (#) nào vào bài viết."
 
         prompt = f"""Bạn là một người sáng tạo nội dung mạng xã hội (Facebook Content Creator) xuất sắc, viết bài tự nhiên như một con người thực sự có chuyên môn sâu về chủ đề này.
 Hãy viết một bài đăng Facebook Fanpage hoàn chỉnh, cuốn hút, chuẩn viral về chủ đề sau:
@@ -201,6 +214,8 @@ Lưu ý: Chỉ trả về nội dung bài viết hoàn chỉnh để đăng ngay
         tone: str = "chuyên nghiệp, hấp dẫn",
         include_hashtags: bool = True,
         use_search: bool = True,
+        target_hashtags: str | None = None,
+        target_page_name: str | None = None,
     ) -> dict[str, Any]:
         """Generate a Facebook Fanpage post based on topic and options.
 
@@ -223,7 +238,11 @@ Lưu ý: Chỉ trả về nội dung bài viết hoàn chỉnh để đăng ngay
             raise ValueError("Topic cannot be empty")
 
         prompt = self._build_prompt(
-            topic=topic.strip(), tone=tone, include_hashtags=include_hashtags
+            topic=topic.strip(),
+            tone=tone,
+            include_hashtags=include_hashtags,
+            target_hashtags=target_hashtags,
+            target_page_name=target_page_name,
         )
 
         if use_search:

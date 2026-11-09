@@ -193,13 +193,28 @@ class OpenRouterService:
                 "message": str(e),
             }
 
-    def _build_prompt(self, topic: str, tone: str, include_hashtags: bool) -> str:
+    def _build_prompt(
+        self,
+        topic: str,
+        tone: str,
+        include_hashtags: bool,
+        target_hashtags: str | None = None,
+        target_page_name: str | None = None,
+    ) -> str:
         """Construct prompt for Facebook Fanpage content creation."""
-        hashtag_instruction = (
-            "5. Hashtags: Thêm cụm 3-7 hashtags thịnh hành và liên quan mật thiết ở cuối bài viết."
-            if include_hashtags
-            else "5. Hashtags: KHÔNG thêm bất kỳ hashtag (#) nào vào bài viết."
-        )
+        if include_hashtags:
+            if target_hashtags and str(target_hashtags).strip():
+                clean_target_tags = str(target_hashtags).strip()
+                page_info = f" cho Fanpage '{target_page_name}'" if target_page_name else ""
+                hashtag_instruction = (
+                    f"5. Hashtags: Thêm cụm 3-7 hashtags thịnh hành về chủ đề VÀ BẮT BUỘC bao gồm các hashtag khu vực địa phương sau{page_info}: {clean_target_tags} ở cuối bài viết."
+                )
+            else:
+                hashtag_instruction = (
+                    "5. Hashtags: Thêm cụm 3-7 hashtags thịnh hành và liên quan mật thiết ở cuối bài viết."
+                )
+        else:
+            hashtag_instruction = "5. Hashtags: KHÔNG thêm bất kỳ hashtag (#) nào vào bài viết."
 
         return f"""Bạn là một người sáng tạo nội dung mạng xã hội (Facebook Content Creator) xuất sắc, viết bài tự nhiên như một con người thực sự có chuyên môn sâu về chủ đề này.
 Hãy viết một bài đăng Facebook Fanpage hoàn chỉnh, cuốn hút, chuẩn viral về chủ đề sau:
@@ -237,6 +252,8 @@ Lưu ý quan trọng:
         tone: str = "chuyên nghiệp, hấp dẫn",
         include_hashtags: bool = True,
         use_search: bool = True,
+        target_hashtags: str | None = None,
+        target_page_name: str | None = None,
     ) -> dict[str, Any]:
         """Generate an engaging Facebook Fanpage post using OpenRouter.
 
@@ -259,7 +276,13 @@ Lưu ý quan trọng:
         if not topic or not topic.strip():
             raise ValueError("Vui lòng nhập chủ đề bài viết.")
 
-        prompt = self._build_prompt(topic=topic.strip(), tone=tone, include_hashtags=include_hashtags)
+        prompt = self._build_prompt(
+            topic=topic.strip(),
+            tone=tone,
+            include_hashtags=include_hashtags,
+            target_hashtags=target_hashtags,
+            target_page_name=target_page_name,
+        )
 
         url = f"{self.BASE_URL}/chat/completions"
         payload: dict[str, Any] = {

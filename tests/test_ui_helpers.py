@@ -233,3 +233,29 @@ def test_parse_image_paths():
     # Python list
     assert parse_image_paths(["p1.jpg", "p2.jpg"]) == ["p1.jpg", "p2.jpg"]
 
+
+
+def test_replace_page_hashtags():
+    from src.ui_helpers import replace_page_hashtags
+
+    # 1. Base content with no tags
+    content = "Dịch vụ sửa chữa laptop uy tín, kiểm tra miễn phí."
+    conic_tags = "#q8 #q4 #q6 #q1 #BinhChanh #Conic #SuaLaptopConic"
+    result = replace_page_hashtags(content, conic_tags)
+    assert "#q8" in result
+    assert "#Conic" in result
+    assert "Dịch vụ sửa chữa laptop uy tín" in result
+
+    # 2. Replacing Conic tags with BMT tags
+    bmt_tags = "#Bmt #BuonMaThuot #PhuongTanLap #PhuongTanAn #SuaMayTinhBMT"
+    bmt_result = replace_page_hashtags(result, bmt_tags)
+    assert "#Bmt" in bmt_result
+    assert "#BuonMaThuot" in bmt_result
+    assert "#q8" not in bmt_result
+    assert "#Conic" not in bmt_result
+    assert "Dịch vụ sửa chữa laptop uy tín" in bmt_result
+
+    # 3. Empty inputs
+    assert replace_page_hashtags("", conic_tags) == conic_tags
+    assert replace_page_hashtags("Some content", "") == "Some content"
+    assert replace_page_hashtags("Some content", "   ") == "Some content"

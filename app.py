@@ -29,6 +29,7 @@ from src.ui_helpers import (
     mask_token,
     parse_image_paths,
     render_status_badge_html,
+    replace_page_hashtags,
     save_env_config,
     save_uploaded_file,
     validate_schedule_datetime_fb,
@@ -372,6 +373,26 @@ with tab1:
                 ]
                 selected_ai_model = st.selectbox("Chọn Model Gemini:", gemini_models)
 
+        # Target Fanpage selection for local hashtags
+        active_fps_tab1 = db_manager.get_fanpages(only_active=True)
+        target_fp_options = ["(Tự động / Không cố định)"] + [f"{fp['page_name']} ({fp['page_id']})" for fp in active_fps_tab1]
+        chosen_fp_tab1_label = st.selectbox(
+            "🎯 Fanpage mục tiêu (để tối ưu Hashtag khu vực):",
+            target_fp_options,
+            index=0,
+            help="Chọn Fanpage mà bạn muốn đăng bài. AI sẽ tự động bổ sung và lồng ghép các hashtag khu vực đặc thù của Fanpage đó.",
+        )
+        selected_target_fp = None
+        target_hashtags_val = ""
+        target_fp_name_val = ""
+        if chosen_fp_tab1_label != "(Tự động / Không cố định)":
+            selected_target_fp = next((fp for fp in active_fps_tab1 if f"{fp['page_name']} ({fp['page_id']})" == chosen_fp_tab1_label), None)
+            if selected_target_fp:
+                target_hashtags_val = selected_target_fp.get("default_hashtags") or ""
+                target_fp_name_val = selected_target_fp.get("page_name") or ""
+                if target_hashtags_val:
+                    st.caption(f"📍 **Hashtag khu vực:** `{target_hashtags_val}`")
+
         sub_col1, sub_col2 = st.columns(2)
         with sub_col1:
             tone_options = [
@@ -434,6 +455,8 @@ with tab1:
                                     tone=tone_text,
                                     include_hashtags=include_hashtags,
                                     use_search=use_search,
+                                    target_page_name=target_fp_name_val or None,
+                                    target_hashtags=target_hashtags_val if include_hashtags else None,
                                 )
                             else:
                                 gemini_svc = GeminiService(api_key=gemini_key, model=selected_ai_model)
@@ -442,6 +465,8 @@ with tab1:
                                     tone=tone_text,
                                     include_hashtags=include_hashtags,
                                     use_search=use_search,
+                                    target_page_name=target_fp_name_val or None,
+                                    target_hashtags=target_hashtags_val if include_hashtags else None,
                                 )
                             success = True
                         except Exception as exc:
@@ -463,6 +488,8 @@ with tab1:
                                             tone=tone_text,
                                             include_hashtags=include_hashtags,
                                             use_search=use_search,
+                                            target_page_name=target_fp_name_val or None,
+                                            target_hashtags=target_hashtags_val if include_hashtags else None,
                                         )
                                     else:
                                         gemini_fallback_svc = GeminiService(api_key=gemini_key)
@@ -471,6 +498,8 @@ with tab1:
                                             tone=tone_text,
                                             include_hashtags=include_hashtags,
                                             use_search=use_search,
+                                            target_page_name=target_fp_name_val or None,
+                                            target_hashtags=target_hashtags_val if include_hashtags else None,
                                         )
                                     success = True
                                     st.info(f"✅ Đã tạo nội dung thành công thông qua nguồn dự phòng: **{fallback_provider}**!")
@@ -805,20 +834,21 @@ with tab2:
 
                     for fp in target_fps:
                         fp_name = fp.get("page_name", fp["page_id"])
+                        fp_text = replace_page_hashtags(current_text, fp.get("default_hashtags", "")) if fp.get("default_hashtags") else current_text
                         try:
                             with st.spinner(f"Đang gửi bài viết đến '{fp_name}'..."):
                                 fb_svc = FacebookService(page_id=fp["page_id"], access_token=fp["access_token"])
                                 if len(active_imgs) == 1:
-                                    res = fb_svc.publish_photo_post(message=current_text, photo_path=active_imgs[0])
+                                    res = fb_svc.publish_photo_post(message=fp_text, photo_path=active_imgs[0])
                                 elif len(active_imgs) > 1:
-                                    res = fb_svc.publish_multi_photo_post(message=current_text, photo_paths=active_imgs)
+                                    res = fb_svc.publish_multi_photo_post(message=fp_text, photo_paths=active_imgs)
                                 else:
-                                    res = fb_svc.publish_text_post(message=current_text)
+                                    res = fb_svc.publish_text_post(message=fp_text)
 
                                 fb_post_id = str(res.get("post_id") or res.get("id"))
                                 saved_id = db_manager.save_post(
                                     topic=st.session_state.post_topic or "Đăng ngay",
-                                    content=current_text,
+                                    content=fp_text,
                                     image_path=img_db_val,
                                     status="published",
                                     fb_post_id=fb_post_id,
@@ -864,31 +894,32 @@ with tab2:
 
                     for fp in target_fps:
                         fp_name = fp.get("page_name", fp["page_id"])
+                        fp_text = replace_page_hashtags(current_text, fp.get("default_hashtags", "")) if fp.get("default_hashtags") else current_text
                         try:
                             with st.spinner(f"Đang lên lịch trên máy chủ Facebook cho '{fp_name}'..."):
                                 fb_svc = FacebookService(page_id=fp["page_id"], access_token=fp["access_token"])
                                 if len(active_imgs) == 1:
                                     res = fb_svc.publish_photo_post(
-                                        message=current_text,
+                                        message=fp_text,
                                         photo_path=active_imgs[0],
                                         scheduled_publish_time=unix_ts,
                                     )
                                 elif len(active_imgs) > 1:
                                     res = fb_svc.publish_multi_photo_post(
-                                        message=current_text,
+                                        message=fp_text,
                                         photo_paths=active_imgs,
                                         scheduled_publish_time=unix_ts,
                                     )
                                 else:
                                     res = fb_svc.publish_text_post(
-                                        message=current_text,
+                                        message=fp_text,
                                         scheduled_publish_time=unix_ts,
                                     )
 
                                 fb_post_id = str(res.get("post_id") or res.get("id"))
                                 saved_id = db_manager.save_post(
                                     topic=st.session_state.post_topic or "Hẹn giờ Facebook",
-                                    content=current_text,
+                                    content=fp_text,
                                     image_path=img_db_val,
                                     status="scheduled_fb",
                                     scheduled_time=scheduled_dt.strftime("%Y-%m-%d %H:%M:%S"),
@@ -936,10 +967,11 @@ with tab2:
 
                     for fp in target_fps:
                         fp_name = fp.get("page_name", fp["page_id"])
+                        fp_text = replace_page_hashtags(current_text, fp.get("default_hashtags", "")) if fp.get("default_hashtags") else current_text
                         try:
                             post_id = db_manager.save_post(
                                 topic=st.session_state.post_topic or "Hẹn giờ Local",
-                                content=current_text,
+                                content=fp_text,
                                 image_path=img_db_val,
                                 status="scheduled_local",
                                 scheduled_time=scheduled_local_dt.strftime("%Y-%m-%d %H:%M:%S"),
@@ -1191,6 +1223,11 @@ with tab4:
                 placeholder="EAAB...",
                 help="Mã Page Access Token dài hạn của Fanpage này",
             )
+            new_hashtags = st.text_input(
+                "Hashtags khu vực mặc định (tùy chọn):",
+                placeholder="Ví dụ: #q8 #q4 #BinhChanh #Conic",
+                help="Các hashtag đặc trưng cho khu vực/thương hiệu của Fanpage này. AI sẽ tự động gắn vào cuối bài viết khi chọn trang.",
+            )
             add_fp_submit = st.form_submit_button("🔍 Xác thực & Thêm Fanpage", type="primary", use_container_width=True)
 
             if add_fp_submit:
@@ -1209,6 +1246,7 @@ with tab4:
                                 page_name=p_name,
                                 access_token=clean_tok,
                                 is_active=1,
+                                default_hashtags=str(new_hashtags or "").strip(),
                             )
                             st.success(f"🎉 Xác thực thành công! Đã thêm Fanpage: **{p_name}** (ID: `{clean_pid}`)")
                             st.rerun()
@@ -1245,6 +1283,22 @@ with tab4:
                     st.markdown(f"**Page ID:** `{f_pid}`")
                     st.markdown(f"**Token:** `{masked_tok}`")
                     st.markdown(f"**Trạng thái:** **{status_pill}**")
+
+                    cur_ht = fp.get("default_hashtags", "")
+                    edit_ht_col1, edit_ht_col2 = st.columns([3, 1])
+                    with edit_ht_col1:
+                        new_ht_val = st.text_input(
+                            "Hashtags khu vực:",
+                            value=cur_ht,
+                            key=f"ht_input_{f_pid}",
+                            help="Danh sách hashtags đặc thù cho Fanpage này (phân cách bằng khoảng trắng hoặc dấu phẩy)",
+                        )
+                    with edit_ht_col2:
+                        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                        if st.button("💾 Lưu Tag", key=f"save_ht_{f_pid}", use_container_width=True):
+                            db_manager.update_fanpage(f_pid, default_hashtags=new_ht_val.strip())
+                            st.success("✅ Đã cập nhật hashtag!")
+                            st.rerun()
 
                     btn_c1, btn_c2, btn_c3 = st.columns(3)
                     with btn_c1:

@@ -7,6 +7,18 @@ import sqlite3
 from typing import Any
 
 
+
+def get_preset_hashtags_for_page(page_name: str = "", page_id: str = "") -> str:
+    """Return preset localized hashtags if page name or id matches Conic or BMT."""
+    name_lower = (page_name or "").lower()
+    pid = str(page_id or "").strip()
+    if "conic" in name_lower:
+        return "#q8 #q4 #q6 #q1 #BinhChanh #Conic #SuaLaptopConic"
+    if "bmt" in name_lower or pid == "619960427857965" or "buôn ma thuột" in name_lower or "buon ma thuot" in name_lower:
+        return "#Bmt #BuonMaThuot #PhuongTanLap #PhuongTanAn #SuaMayTinhBMT"
+    return ""
+
+
 class DatabaseManager:
     """Manages SQLite database storage for Facebook fanpage posts and scheduling."""
 
@@ -57,6 +69,7 @@ class DatabaseManager:
             page_name TEXT NOT NULL,
             access_token TEXT NOT NULL,
             is_active INTEGER DEFAULT 1,
+            default_hashtags TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -73,6 +86,21 @@ class DatabaseManager:
                 cursor.execute("ALTER TABLE posts ADD COLUMN page_id TEXT;")
             if "page_name" not in columns:
                 cursor.execute("ALTER TABLE posts ADD COLUMN page_name TEXT;")
+
+            # Safe migration: ensure default_hashtags column exists in fanpages
+            cursor.execute("PRAGMA table_info(fanpages)")
+            fp_columns = [row["name"] for row in cursor.fetchall()]
+            if "default_hashtags" not in fp_columns:
+                cursor.execute("ALTER TABLE fanpages ADD COLUMN default_hashtags TEXT DEFAULT '';")
+
+            # Backfill preset hashtags for Conic and BMT if empty
+            cursor.execute("SELECT id, page_id, page_name, default_hashtags FROM fanpages")
+            for fp_row in cursor.fetchall():
+                cur_tags = fp_row["default_hashtags"]
+                if not cur_tags or not str(cur_tags).strip():
+                    preset = get_preset_hashtags_for_page(fp_row["page_name"], fp_row["page_id"])
+                    if preset:
+                        cursor.execute("UPDATE fanpages SET default_hashtags = ? WHERE id = ?", (preset, fp_row["id"]))
 
             conn.commit()
 
@@ -189,28 +217,39 @@ class DatabaseManager:
         page_name: str,
         access_token: str,
         is_active: int = 1,
+        default_hashtags: str | None = None,
     ) -> int:
         """Add or update a Facebook fanpage entry. Returns record ID."""
+        clean_pid = str(page_id).strip()
+        clean_pname = str(page_name).strip()
+        clean_tok = str(access_token).strip()
+
+        if default_hashtags is None:
+            tags_to_save = get_preset_hashtags_for_page(clean_pname, clean_pid)
+        else:
+            tags_to_save = str(default_hashtags).strip()
+
         sql = """
-        INSERT INTO fanpages (page_id, page_name, access_token, is_active)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO fanpages (page_id, page_name, access_token, is_active, default_hashtags)
+        VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(page_id) DO UPDATE SET
             page_name = excluded.page_name,
             access_token = excluded.access_token,
             is_active = excluded.is_active,
+            default_hashtags = CASE WHEN excluded.default_hashtags != '' THEN excluded.default_hashtags ELSE fanpages.default_hashtags END,
             updated_at = CURRENT_TIMESTAMP
         """
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 sql,
-                (str(page_id).strip(), str(page_name).strip(), str(access_token).strip(), is_active),
+                (clean_pid, clean_pname, clean_tok, is_active, tags_to_save),
             )
             conn.commit()
             last_id = cursor.lastrowid
             if last_id is None:
                 # If updated, fetch existing id
-                cursor.execute("SELECT id FROM fanpages WHERE page_id = ?", (str(page_id).strip(),))
+                cursor.execute("SELECT id FROM fanpages WHERE page_id = ?", (clean_pid,))
                 row = cursor.fetchone()
                 return row["id"] if row else 0
             return last_id
@@ -247,6 +286,7 @@ class DatabaseManager:
         page_name: str | None = None,
         access_token: str | None = None,
         is_active: int | None = None,
+        default_hashtags: str | None = None,
     ) -> bool:
         """Update fanpage details. Returns True if row was updated."""
         updates = ["updated_at = CURRENT_TIMESTAMP"]
@@ -263,6 +303,10 @@ class DatabaseManager:
         if is_active is not None:
             updates.append("is_active = ?")
             params.append(1 if is_active else 0)
+
+        if default_hashtags is not None:
+            updates.append("default_hashtags = ?")
+            params.append(str(default_hashtags).strip())
 
         params.append(str(page_id).strip())
         sql = f"UPDATE fanpages SET {', '.join(updates)} WHERE page_id = ?"

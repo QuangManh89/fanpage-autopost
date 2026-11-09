@@ -300,3 +300,33 @@ def test_rewrite_content_success():
         payload = mock_post.call_args[1]["json"]
         user_msg = payload["messages"][1]["content"]
         assert "Viết lại văn bản này theo cách phản ánh cách con người thực sự suy nghĩ" in user_msg
+
+
+def test_openrouter_post_with_target_hashtags():
+    """Test that target_hashtags and target_page_name are included in OpenRouter prompt."""
+    service = OpenRouterService(api_key="sk-or-test")
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "Sửa máy tính tại BMT chuyên nghiệp #Bmt #BuonMaThuot",
+                }
+            }
+        ]
+    }
+
+    with patch("requests.post", return_value=mock_resp) as mock_post:
+        res = service.generate_fanpage_post(
+            topic="Cài đặt Windows tại nhà",
+            target_page_name="Sửa Máy Tính Tại Nhà BMT",
+            target_hashtags="#Bmt #BuonMaThuot #PhuongTanLap",
+        )
+        assert "#Bmt" in res["content"]
+        assert mock_post.called
+        payload = mock_post.call_args[1]["json"]
+        user_msg = payload["messages"][0]["content"]
+        assert "Sửa Máy Tính Tại Nhà BMT" in user_msg
+        assert "#Bmt #BuonMaThuot #PhuongTanLap" in user_msg

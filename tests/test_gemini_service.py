@@ -244,3 +244,26 @@ def test_rewrite_content_success(mock_genai_client):
     mock_genai_client.models.generate_content.assert_called_once()
     call_args = mock_genai_client.models.generate_content.call_args
     assert "Hãy đóng vai một biên tập viên con người" in call_args.kwargs["contents"]
+
+
+def test_generate_fanpage_post_with_target_hashtags(mock_genai_client):
+    """Test that target_hashtags and target_page_name are included in Gemini prompt."""
+    mock_response = MagicMock()
+    mock_response.text = "Nội dung bài viết cho Conic #q8 #Conic"
+    mock_candidate = MagicMock()
+    mock_candidate.grounding_metadata = None
+    mock_response.candidates = [mock_candidate]
+    mock_genai_client.models.generate_content.return_value = mock_response
+
+    service = GeminiService(api_key="test-key", client=mock_genai_client)
+    result = service.generate_fanpage_post(
+        topic="Sửa bản lề laptop",
+        target_page_name="Sửa Laptop Conic",
+        target_hashtags="#q8 #q4 #q6 #BinhChanh #Conic",
+    )
+
+    assert result["content"] == "Nội dung bài viết cho Conic #q8 #Conic"
+    call_args = mock_genai_client.models.generate_content.call_args
+    prompt = call_args.kwargs["contents"]
+    assert "Sửa Laptop Conic" in prompt
+    assert "#q8 #q4 #q6 #BinhChanh #Conic" in prompt

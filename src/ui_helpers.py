@@ -326,3 +326,62 @@ def parse_image_paths(image_path_val: Any) -> list[str]:
         return [part.strip() for part in val_str.split(",") if part.strip()]
     return [val_str]
 
+
+
+
+KNOWN_LOCAL_TAGS = {
+    "#q8",
+    "#q4",
+    "#q6",
+    "#q1",
+    "#binhchanh",
+    "#conic",
+    "#sualaptopconic",
+    "#bmt",
+    "#buonmathuot",
+    "#phuongtanlap",
+    "#phuongtanan",
+    "#suamaytinhbmt",
+}
+
+
+def replace_page_hashtags(content: str, new_hashtags: str) -> str:
+    """Cập nhật hoặc thay thế cụm hashtag địa phương của Fanpage trong nội dung bài viết.
+
+    Args:
+        content: Nội dung bài viết hiện tại.
+        new_hashtags: Cụm hashtag mới của Fanpage (ví dụ: '#q8 #q4 #q6 #q1 #BinhChanh #Conic').
+
+    Returns:
+        Nội dung bài viết đã được cập nhật cụm hashtag tương ứng.
+    """
+    clean_content = str(content or "").strip()
+    clean_new_tags = str(new_hashtags or "").strip()
+
+    if not clean_new_tags:
+        return clean_content
+
+    new_tags_list = [t.strip() for t in clean_new_tags.split() if t.strip().startswith("#")]
+    new_tags_lower = {t.lower() for t in new_tags_list}
+
+    # Filter out known localized hashtags belonging to other Fanpages
+    words = clean_content.split()
+    filtered_words = []
+    for w in words:
+        clean_w = w.strip()
+        if clean_w.lower() in KNOWN_LOCAL_TAGS and clean_w.lower() not in new_tags_lower:
+            continue
+        filtered_words.append(w)
+
+    reconstructed = " ".join(filtered_words).strip()
+    content_lower = reconstructed.lower()
+    missing_tags = [t for t in new_tags_list if t.lower() not in content_lower]
+
+    if not missing_tags:
+        return reconstructed
+
+    tags_to_add = " ".join(missing_tags)
+    if not reconstructed:
+        return tags_to_add
+
+    return f"{reconstructed}\n\n{tags_to_add}"
