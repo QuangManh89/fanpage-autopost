@@ -694,10 +694,10 @@ with tab2:
                                     page_id=fp["page_id"],
                                     page_name=fp_name,
                                 )
-                                st.success(
-                                    f"🎉 Đã lên lịch thành công cho **{fp_name}**! (Mã: {fb_post_id}, ID: #{saved_id}) | "
-                                    f"Thời gian: {scheduled_dt.strftime('%d/%m/%Y %H:%M')}"
-                                )
+                                post_url = format_facebook_url(fb_post_id)
+                                st.success(f"🎉 Đã đăng bài thành công lên **{fp_name}**! (ID lưu: #{saved_id})")
+                                if post_url:
+                                    st.markdown(f"🔗 **Xem bài viết:** [{post_url}]({post_url})")
                         except FacebookAPIError as api_err:
                             st.error(f"❌ '{fp_name}': Lỗi Graph API: {api_err.user_message}")
                         except Exception as exc:
