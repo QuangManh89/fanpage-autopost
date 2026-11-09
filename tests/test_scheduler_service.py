@@ -450,3 +450,35 @@ def test_scheduler_routes_to_correct_fanpage_from_db(temp_db):
         mock_instance.publish_text_post.assert_called_once_with(message="Post for specific page")
         assert fallback_provider.called is False
 
+
+def test_scheduler_executes_multi_photo_post(temp_db, tmp_path):
+    """Test that scheduler calls publish_multi_photo_post when post has multiple images."""
+    from unittest.mock import MagicMock
+
+    img1 = tmp_path / "img1.png"
+    img1.write_bytes(b"data1")
+    img2 = tmp_path / "img2.png"
+    img2.write_bytes(b"data2")
+
+    mock_fb = MagicMock()
+    mock_fb.publish_multi_photo_post.return_value = {"id": "feed_multi_123"}
+
+    service = LocalSchedulerService(db=temp_db, fb_service_provider=lambda: mock_fb)
+    post_id = temp_db.save_post(
+        topic="Multi photo schedule",
+        content="Testing multiple images in scheduler",
+        image_path=f"{img1},{img2}",
+    )
+
+    success = service.execute_post_job(post_id)
+    assert success is True
+    mock_fb.publish_multi_photo_post.assert_called_once_with(
+        message="Testing multiple images in scheduler",
+        photo_paths=[str(img1), str(img2)],
+    )
+
+    updated_post = temp_db.get_post_by_id(post_id)
+    assert updated_post["status"] == "published"
+    assert updated_post["fb_post_id"] == "feed_multi_123"
+
+

@@ -19,6 +19,7 @@ __all__ = [
     "save_env_config",
     "load_env_config",
     "mask_token",
+    "parse_image_paths",
 ]
 
 # Status badge dictionary definitions
@@ -292,3 +293,33 @@ def load_env_config(env_path: str = ".env") -> dict[str, str]:
             os.environ[key] = val_clean
 
     return result
+
+
+def parse_image_paths(image_path_val: Any) -> list[str]:
+    """Parse an image path value (single string, JSON list, or comma-separated) into a list of paths.
+
+    Args:
+        image_path_val: Single file path string, list of strings, JSON array string, or None.
+
+    Returns:
+        List of cleaned, non-empty image file paths.
+    """
+    if not image_path_val:
+        return []
+    if isinstance(image_path_val, list):
+        return [str(p).strip() for p in image_path_val if str(p).strip()]
+    val_str = str(image_path_val).strip()
+    if not val_str:
+        return []
+    if val_str.startswith("[") and val_str.endswith("]"):
+        try:
+            import json
+            parsed = json.loads(val_str)
+            if isinstance(parsed, list):
+                return [str(p).strip() for p in parsed if str(p).strip()]
+        except Exception:
+            pass
+    if "," in val_str:
+        return [part.strip() for part in val_str.split(",") if part.strip()]
+    return [val_str]
+

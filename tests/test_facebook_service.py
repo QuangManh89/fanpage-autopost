@@ -414,3 +414,48 @@ class TestFacebookServiceGetPostInfo:
             fb_service.get_post_info("fake_id")
 
         assert exc_info.value.code == 100
+
+    @patch("requests.post")
+    def test_publish_multi_photo_post_success(self, mock_post, fb_service, tmp_path):
+        import json
+        img1 = tmp_path / "img1.png"
+        img1.write_bytes(b"image_data_one")
+        img2 = tmp_path / "img2.png"
+        img2.write_bytes(b"image_data_two")
+
+        # Mock 2 photo uploads then 1 feed post
+        mock_resp_photo1 = MagicMock(status_code=200)
+        mock_resp_photo1.json.return_value = {"id": "photo_id_1"}
+
+        mock_resp_photo2 = MagicMock(status_code=200)
+        mock_resp_photo2.json.return_value = {"id": "photo_id_2"}
+
+        mock_resp_feed = MagicMock(status_code=200)
+        mock_resp_feed.json.return_value = {"id": "page_id_feed_123"}
+
+        mock_post.side_effect = [mock_resp_photo1, mock_resp_photo2, mock_resp_feed]
+
+        res = fb_service.publish_multi_photo_post(
+            message="Multi photo test",
+            photo_paths=[str(img1), str(img2)],
+        )
+
+        assert res["id"] == "page_id_feed_123"
+        assert mock_post.call_count == 3
+
+        # Verify feed call arguments
+        feed_call = mock_post.call_args_list[2]
+        assert "feed" in feed_call[0][0]
+        data = feed_call[1]["data"]
+        assert data["message"] == "Multi photo test"
+        attached = json.loads(data["attached_media"])
+        assert attached == [{"media_fbid": "photo_id_1"}, {"media_fbid": "photo_id_2"}]
+
+    def test_publish_multi_photo_empty_raises(self, fb_service):
+        with pytest.raises(ValueError, match="trống"):
+            fb_service.publish_multi_photo_post("message", [])
+
+    def test_publish_multi_photo_missing_file_raises(self, fb_service):
+        with pytest.raises(FileNotFoundError):
+            fb_service.publish_multi_photo_post("message", ["non_existent_1.png", "non_existent_2.png"])
+

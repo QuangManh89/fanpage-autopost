@@ -227,13 +227,19 @@ class LocalSchedulerService:
 
         content = post.get("content", "")
         image_path = post.get("image_path")
+        from src.ui_helpers import parse_image_paths
+        img_paths = parse_image_paths(image_path)
 
         try:
-            if image_path and str(image_path).strip():
-                clean_img_path = str(image_path).strip()
+            if len(img_paths) == 1:
                 result = fb_service.publish_photo_post(
                     message=content,
-                    photo_path=clean_img_path,
+                    photo_path=img_paths[0],
+                )
+            elif len(img_paths) > 1:
+                result = fb_service.publish_multi_photo_post(
+                    message=content,
+                    photo_paths=img_paths,
                 )
             else:
                 result = fb_service.publish_text_post(

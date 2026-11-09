@@ -409,6 +409,87 @@ class FacebookService:
                 "POST", url, data=payload, files=files
             )
 
+    def publish_multi_photo_post(
+        self,
+        message: str,
+        photo_paths: list[str],
+        scheduled_publish_time: int | None = None,
+    ) -> dict:
+        """Publish a post with one or multiple photos attached to the Facebook Fanpage.
+
+        If a single photo is provided, delegates to publish_photo_post.
+        If multiple photos are provided, uploads each photo as unpublished
+        and creates a single feed post with `attached_media`.
+
+        Args:
+            message: Caption text for the post.
+            photo_paths: List of local image file paths.
+            scheduled_publish_time: Optional Unix timestamp for scheduling.
+
+        Returns:
+            dict with post ID (e.g. `{"id": "page_id_post_id"}`).
+
+        Raises:
+            ValueError: If photo_paths is empty or contains invalid files.
+            FileNotFoundError: If any photo file is missing.
+            FacebookAPIError: If Facebook API returns an error.
+        """
+        valid_paths = [p for p in photo_paths if p and str(p).strip()]
+        if not valid_paths:
+            raise ValueError("Danh sách file ảnh không được để trống.")
+
+        if len(valid_paths) == 1:
+            return self.publish_photo_post(
+                message=message,
+                photo_path=valid_paths[0],
+                scheduled_publish_time=scheduled_publish_time,
+            )
+
+        # Validate all files before starting upload
+        for p in valid_paths:
+            if not os.path.exists(p) or not os.path.isfile(p):
+                raise FileNotFoundError(f"Không tìm thấy file ảnh: {p}")
+            sz = os.path.getsize(p)
+            if sz == 0:
+                raise ValueError(f"File ảnh rỗng (0 bytes): {p}")
+            if sz > 10 * 1024 * 1024:
+                raise ValueError(f"Dung lượng ảnh ({sz / (1024 * 1024):.2f}MB) vượt quá giới hạn 10MB: {p}")
+
+        sched_time = self.validate_schedule_time(scheduled_publish_time)
+
+        # Upload each photo as unpublished
+        import json
+        media_fbids = []
+        upload_url = f"{self.base_url}/{self.page_id}/photos"
+        for p in valid_paths:
+            upload_payload: dict[str, Any] = {
+                "published": False,
+                "access_token": self.access_token,
+            }
+            with open(p, "rb") as pf:
+                files = {"source": pf}
+                res = self._execute_request("POST", upload_url, data=upload_payload, files=files)
+                photo_id = res.get("id")
+                if not photo_id:
+                    raise FacebookAPIError(f"Upload ảnh thất bại: {res}")
+                media_fbids.append({"media_fbid": str(photo_id)})
+
+        # Publish the feed post with attached_media
+        feed_url = f"{self.base_url}/{self.page_id}/feed"
+        feed_payload: dict[str, Any] = {
+            "message": message or "",
+            "access_token": self.access_token,
+            "attached_media": json.dumps(media_fbids),
+        }
+        if sched_time is not None:
+            feed_payload["published"] = False
+            feed_payload["scheduled_publish_time"] = sched_time
+        else:
+            feed_payload["published"] = True
+
+        return self._execute_request("POST", feed_url, data=feed_payload)
+
+
     def get_post_info(self, post_id: str) -> dict:
         """Fetch information about a published Facebook post.
 

@@ -29,6 +29,7 @@ from src.ui_helpers import (
     get_status_badge,
     load_env_config,
     mask_token,
+    parse_image_paths,
     render_status_badge_html,
     save_env_config,
     save_uploaded_file,
@@ -186,6 +187,10 @@ if "content_editor_area" not in st.session_state:
     st.session_state.content_editor_area = ""
 if "post_image_path" not in st.session_state:
     st.session_state.post_image_path = None
+if "post_image_paths" not in st.session_state:
+    st.session_state.post_image_paths = []
+if "processed_file_signatures" not in st.session_state:
+    st.session_state.processed_file_signatures = set()
 if "last_uploaded_file_id" not in st.session_state:
     st.session_state.last_uploaded_file_id = None
 if "post_sources" not in st.session_state:
@@ -467,10 +472,11 @@ with tab1:
                 if not st.session_state.post_content.strip():
                     st.warning("⚠️ Nội dung bài viết đang trống, không thể lưu.")
                 else:
+                    draft_img_val = ",".join(st.session_state.post_image_paths) if st.session_state.post_image_paths else st.session_state.post_image_path
                     draft_id = db_manager.save_post(
                         topic=st.session_state.post_topic or "Chủ đề nháp",
                         content=st.session_state.post_content,
-                        image_path=st.session_state.post_image_path,
+                        image_path=draft_img_val,
                         status="draft",
                     )
                     st.success(f"✅ Đã lưu bản nháp thành công! (Mã ID: #{draft_id})")
@@ -480,43 +486,60 @@ with tab1:
 
     with col2:
         st.markdown("#### **🖼️ Hình ảnh đính kèm bài viết**")
-        st.caption("Đính kèm 1 ảnh minh họa từ máy tính (PNG, JPG, JPEG, WEBP). Giới hạn tối đa 10MB.")
+        st.caption("Đính kèm một hoặc nhiều ảnh minh họa (PNG, JPG, JPEG, WEBP). Giới hạn tối đa 10MB mỗi ảnh.")
 
-        uploaded_img = st.file_uploader(
-            "Tải ảnh từ máy tính lên:",
+        uploaded_imgs = st.file_uploader(
+            "Tải ảnh từ máy tính lên (có thể chọn nhiều ảnh):",
             type=["png", "jpg", "jpeg", "webp"],
-            help="Ảnh sẽ được lưu an toàn tại thư mục data/uploads/",
+            accept_multiple_files=True,
+            help="Chọn một hoặc nhiều ảnh. Ảnh sẽ được lưu an toàn tại data/uploads/",
         )
 
-        if uploaded_img is not None:
-            file_signature = (
-                getattr(uploaded_img, "file_id", None)
-                or f"{uploaded_img.name}_{getattr(uploaded_img, 'size', 0)}"
-            )
-            if st.session_state.get("last_uploaded_file_id") != file_signature:
-                try:
-                    saved_path = save_uploaded_file(uploaded_img, upload_dir="data/uploads")
-                    st.session_state.post_image_path = saved_path
-                    st.session_state.last_uploaded_file_id = file_signature
-                    st.success(f"✅ Đã tải ảnh lên: `{os.path.basename(saved_path)}`")
-                except Exception as exc:
-                    st.error(f"❌ Không thể lưu file ảnh: {exc}")
-
-        # Show current image preview
-        if st.session_state.post_image_path:
-            if os.path.exists(st.session_state.post_image_path):
-                st.image(
-                    st.session_state.post_image_path,
-                    caption=f"Ảnh đính kèm: {os.path.basename(st.session_state.post_image_path)}",
-                    use_container_width=True,
+        if uploaded_imgs:
+            for uploaded_img in uploaded_imgs:
+                file_sig = (
+                    getattr(uploaded_img, "file_id", None)
+                    or f"{uploaded_img.name}_{getattr(uploaded_img, 'size', 0)}"
                 )
-                if st.button("🗑️ Xóa ảnh này", use_container_width=True):
-                    st.session_state.post_image_path = None
-                    st.session_state.last_uploaded_file_id = None
-                    st.rerun()
-            else:
-                st.warning("⚠️ File ảnh trước đó không còn tồn tại trên ổ đĩa.")
+                uploaded_sigs = st.session_state.setdefault("processed_file_signatures", set())
+                if file_sig not in uploaded_sigs:
+                    try:
+                        saved_path = save_uploaded_file(uploaded_img, upload_dir="data/uploads")
+                        if saved_path not in st.session_state.post_image_paths:
+                            st.session_state.post_image_paths.append(saved_path)
+                        uploaded_sigs.add(file_sig)
+                    except Exception as exc:
+                        st.error(f"❌ Không thể lưu file `{uploaded_img.name}`: {exc}")
+
+        # Sync single post_image_path with first item
+        st.session_state.post_image_path = (
+            st.session_state.post_image_paths[0] if st.session_state.post_image_paths else None
+        )
+
+        # Show current images preview
+        valid_paths = [p for p in st.session_state.post_image_paths if os.path.exists(p)]
+        st.session_state.post_image_paths = valid_paths
+
+        if valid_paths:
+            st.markdown(f"📸 **Đã chọn {len(valid_paths)} ảnh:**")
+            num_cols = min(3, len(valid_paths))
+            cols = st.columns(num_cols)
+            for idx, img_p in enumerate(valid_paths):
+                c = cols[idx % num_cols]
+                with c:
+                    st.image(img_p, caption=f"Ảnh #{idx+1}: {os.path.basename(img_p)}", use_container_width=True)
+                    if st.button("🗑️ Xóa", key=f"del_img_t1_{idx}", use_container_width=True):
+                        st.session_state.post_image_paths.pop(idx)
+                        st.session_state.post_image_path = (
+                            st.session_state.post_image_paths[0] if st.session_state.post_image_paths else None
+                        )
+                        st.rerun()
+
+            if st.button("🗑️ Xóa tất cả ảnh", key="del_all_imgs_btn", use_container_width=True):
+                st.session_state.post_image_paths = []
                 st.session_state.post_image_path = None
+                st.session_state.processed_file_signatures = set()
+                st.rerun()
         else:
             st.info("Chưa có ảnh nào được chọn. Bài viết sẽ được đăng ở định dạng văn bản (Text post).")
 
@@ -560,8 +583,20 @@ with tab2:
             unsafe_allow_html=True,
         )
 
-        if st.session_state.post_image_path and os.path.exists(st.session_state.post_image_path):
-            st.image(st.session_state.post_image_path, use_container_width=True)
+        current_preview_imgs = [p for p in st.session_state.post_image_paths if os.path.exists(p)]
+        if not current_preview_imgs and st.session_state.post_image_path and os.path.exists(st.session_state.post_image_path):
+            current_preview_imgs = [st.session_state.post_image_path]
+
+        if len(current_preview_imgs) == 1:
+            st.image(current_preview_imgs[0], use_container_width=True)
+        elif len(current_preview_imgs) > 1:
+            st.caption(f"🖼️ Album đính kèm ({len(current_preview_imgs)} ảnh):")
+            card_img_cols = st.columns(min(2, len(current_preview_imgs)))
+            for ci, cp in enumerate(current_preview_imgs[:4]):
+                with card_img_cols[ci % 2]:
+                    st.image(cp, use_container_width=True)
+            if len(current_preview_imgs) > 4:
+                st.caption(f"... và {len(current_preview_imgs) - 4} ảnh khác")
 
         st.markdown(
             """
@@ -632,14 +667,20 @@ with tab2:
                 elif not target_fps:
                     st.error("❌ Vui lòng chọn ít nhất một Fanpage để đăng bài.")
                 else:
-                    img_path = st.session_state.post_image_path
+                    active_imgs = [p for p in st.session_state.post_image_paths if os.path.exists(p)]
+                    if not active_imgs and st.session_state.post_image_path and os.path.exists(st.session_state.post_image_path):
+                        active_imgs = [st.session_state.post_image_path]
+                    img_db_val = ",".join(active_imgs) if active_imgs else None
+
                     for fp in target_fps:
                         fp_name = fp.get("page_name", fp["page_id"])
                         try:
                             with st.spinner(f"Đang gửi bài viết đến '{fp_name}'..."):
                                 fb_svc = FacebookService(page_id=fp["page_id"], access_token=fp["access_token"])
-                                if img_path and os.path.exists(img_path):
-                                    res = fb_svc.publish_photo_post(message=current_text, photo_path=img_path)
+                                if len(active_imgs) == 1:
+                                    res = fb_svc.publish_photo_post(message=current_text, photo_path=active_imgs[0])
+                                elif len(active_imgs) > 1:
+                                    res = fb_svc.publish_multi_photo_post(message=current_text, photo_paths=active_imgs)
                                 else:
                                     res = fb_svc.publish_text_post(message=current_text)
 
@@ -647,7 +688,7 @@ with tab2:
                                 saved_id = db_manager.save_post(
                                     topic=st.session_state.post_topic or "Đăng ngay",
                                     content=current_text,
-                                    image_path=img_path,
+                                    image_path=img_db_val,
                                     status="published",
                                     fb_post_id=fb_post_id,
                                     page_id=fp["page_id"],
@@ -688,16 +729,26 @@ with tab2:
                 elif not target_fps:
                     st.error("❌ Vui lòng chọn ít nhất một Fanpage để lên lịch.")
                 else:
-                    img_path = st.session_state.post_image_path
+                    active_imgs = [p for p in st.session_state.post_image_paths if os.path.exists(p)]
+                    if not active_imgs and st.session_state.post_image_path and os.path.exists(st.session_state.post_image_path):
+                        active_imgs = [st.session_state.post_image_path]
+                    img_db_val = ",".join(active_imgs) if active_imgs else None
+
                     for fp in target_fps:
                         fp_name = fp.get("page_name", fp["page_id"])
                         try:
                             with st.spinner(f"Đang lên lịch trên máy chủ Facebook cho '{fp_name}'..."):
                                 fb_svc = FacebookService(page_id=fp["page_id"], access_token=fp["access_token"])
-                                if img_path and os.path.exists(img_path):
+                                if len(active_imgs) == 1:
                                     res = fb_svc.publish_photo_post(
                                         message=current_text,
-                                        photo_path=img_path,
+                                        photo_path=active_imgs[0],
+                                        scheduled_publish_time=unix_ts,
+                                    )
+                                elif len(active_imgs) > 1:
+                                    res = fb_svc.publish_multi_photo_post(
+                                        message=current_text,
+                                        photo_paths=active_imgs,
                                         scheduled_publish_time=unix_ts,
                                     )
                                 else:
@@ -710,7 +761,7 @@ with tab2:
                                 saved_id = db_manager.save_post(
                                     topic=st.session_state.post_topic or "Hẹn giờ Facebook",
                                     content=current_text,
-                                    image_path=img_path,
+                                    image_path=img_db_val,
                                     status="scheduled_fb",
                                     scheduled_time=scheduled_dt.strftime("%Y-%m-%d %H:%M:%S"),
                                     fb_post_id=fb_post_id,
@@ -753,14 +804,18 @@ with tab2:
                 elif not target_fps:
                     st.error("❌ Vui lòng chọn ít nhất một Fanpage để lên lịch.")
                 else:
-                    img_path = st.session_state.post_image_path
+                    active_imgs = [p for p in st.session_state.post_image_paths if os.path.exists(p)]
+                    if not active_imgs and st.session_state.post_image_path and os.path.exists(st.session_state.post_image_path):
+                        active_imgs = [st.session_state.post_image_path]
+                    img_db_val = ",".join(active_imgs) if active_imgs else None
+
                     for fp in target_fps:
                         fp_name = fp.get("page_name", fp["page_id"])
                         try:
                             post_id = db_manager.save_post(
                                 topic=st.session_state.post_topic or "Hẹn giờ Local",
                                 content=current_text,
-                                image_path=img_path,
+                                image_path=img_db_val,
                                 status="scheduled_local",
                                 scheduled_time=scheduled_local_dt.strftime("%Y-%m-%d %H:%M:%S"),
                                 page_id=fp["page_id"],
@@ -903,11 +958,17 @@ with tab3:
                     label_visibility="collapsed",
                 )
 
-                if image_path:
-                    if os.path.exists(image_path):
-                        st.image(image_path, width=240, caption=f"Ảnh: {os.path.basename(image_path)}")
-                    else:
-                        st.caption(f"Ảnh không tồn tại: {image_path}")
+                parsed_post_imgs = parse_image_paths(image_path)
+                valid_post_imgs = [p for p in parsed_post_imgs if os.path.exists(p)]
+
+                if valid_post_imgs:
+                    st.caption(f"📸 Ảnh đính kèm ({len(valid_post_imgs)}):")
+                    hist_cols = st.columns(min(4, len(valid_post_imgs)))
+                    for hi, hp in enumerate(valid_post_imgs):
+                        with hist_cols[hi % min(4, len(valid_post_imgs))]:
+                            st.image(hp, caption=f"#{hi+1}: {os.path.basename(hp)}", use_container_width=True)
+                elif image_path:
+                    st.caption(f"Ảnh không tồn tại: {image_path}")
 
                 st.markdown("---")
                 btn_c1, btn_c2, btn_c3, btn_c4 = st.columns(4)
@@ -930,8 +991,10 @@ with tab3:
                                     raise ValueError("Không tìm thấy thông tin xác thực Fanpage để xuất bản lại.")
 
                                 fb_svc = FacebookService(page_id=post_target_pid, access_token=post_target_tok)
-                                if image_path and os.path.exists(image_path):
-                                    res = fb_svc.publish_photo_post(message=content, photo_path=image_path)
+                                if len(valid_post_imgs) == 1:
+                                    res = fb_svc.publish_photo_post(message=content, photo_path=valid_post_imgs[0])
+                                elif len(valid_post_imgs) > 1:
+                                    res = fb_svc.publish_multi_photo_post(message=content, photo_paths=valid_post_imgs)
                                 else:
                                     res = fb_svc.publish_text_post(message=content)
                                 new_post_id = str(res.get("post_id") or res.get("id"))
@@ -956,7 +1019,8 @@ with tab3:
                         st.session_state.topic_input_area = topic
                         st.session_state.post_content = content
                         st.session_state.content_editor_area = content
-                        st.session_state.post_image_path = image_path if (image_path and os.path.exists(image_path)) else None
+                        st.session_state.post_image_paths = valid_post_imgs
+                        st.session_state.post_image_path = valid_post_imgs[0] if valid_post_imgs else None
                         st.success("✅ Đã nạp nội dung vào Tab 1! Vui lòng chuyển sang Tab 1 để chỉnh sửa.")
 
                 with btn_c3:

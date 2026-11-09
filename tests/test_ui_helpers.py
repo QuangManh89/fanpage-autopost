@@ -206,3 +206,29 @@ def test_save_and_load_env_config(tmp_path, monkeypatch):
     loaded2 = load_env_config(env_path=str(env_file))
     assert loaded2["GEMINI_API_KEY"] == "AIzaSyNewKey456"
     assert loaded2["FB_PAGE_ID"] == "100200300400"
+
+
+def test_parse_image_paths():
+    from src.ui_helpers import parse_image_paths
+
+    assert parse_image_paths(None) == []
+    assert parse_image_paths("") == []
+    assert parse_image_paths("   ") == []
+
+    # Single path
+    assert parse_image_paths("data/uploads/img1.png") == ["data/uploads/img1.png"]
+
+    # Comma-separated paths
+    assert parse_image_paths("data/uploads/img1.png, data/uploads/img2.jpg") == [
+        "data/uploads/img1.png",
+        "data/uploads/img2.jpg",
+    ]
+
+    # JSON array
+    import json
+    json_val = json.dumps(["data/uploads/a.png", "data/uploads/b.png"])
+    assert parse_image_paths(json_val) == ["data/uploads/a.png", "data/uploads/b.png"]
+
+    # Python list
+    assert parse_image_paths(["p1.jpg", "p2.jpg"]) == ["p1.jpg", "p2.jpg"]
+
