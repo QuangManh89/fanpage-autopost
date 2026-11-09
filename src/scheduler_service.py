@@ -197,9 +197,21 @@ class LocalSchedulerService:
             )
             return False
 
-        # Resolve FacebookService
+        # Resolve FacebookService: look up fanpage from DB if post has page_id, else fallback to provider
         try:
-            if callable(self.fb_service_provider):
+            target_page_id = post.get("page_id")
+            if target_page_id:
+                fanpage_rec = self.db.get_fanpage_by_page_id(str(target_page_id))
+                if fanpage_rec and fanpage_rec.get("access_token"):
+                    fb_service = FacebookService(
+                        page_id=fanpage_rec["page_id"],
+                        access_token=fanpage_rec["access_token"],
+                    )
+                elif callable(self.fb_service_provider):
+                    fb_service = self.fb_service_provider()
+                else:
+                    fb_service = self.fb_service_provider
+            elif callable(self.fb_service_provider):
                 fb_service = self.fb_service_provider()
             else:
                 fb_service = self.fb_service_provider

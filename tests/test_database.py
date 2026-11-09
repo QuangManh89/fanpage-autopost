@@ -132,3 +132,150 @@ def test_delete_post(db):
     # Deleting non-existent post returns False
     assert db.delete_post(post_id) is False
 
+
+def test_fanpage_crud_and_conflict(db):
+    # Add fanpage
+    fp_id = db.add_fanpage(
+        page_id="123456789",
+        page_name="Sửa Máy Tính BMT",
+        access_token="EAAB1234",
+        is_active=1,
+    )
+    assert fp_id > 0
+
+    # Retrieve by page_id
+    page = db.get_fanpage_by_page_id("123456789")
+    assert page is not None
+    assert page["page_name"] == "Sửa Máy Tính BMT"
+    assert page["access_token"] == "EAAB1234"
+    assert page["is_active"] == 1
+
+    # Conflict / update on add_fanpage with same page_id
+    db.add_fanpage(
+        page_id="123456789",
+        page_name="Sửa Máy Tính BMT Mới",
+        access_token="EAAB9999",
+        is_active=1,
+    )
+    updated = db.get_fanpage_by_page_id("123456789")
+    assert updated["page_name"] == "Sửa Máy Tính BMT Mới"
+    assert updated["access_token"] == "EAAB9999"
+
+    # Explicit update_fanpage
+    db.update_fanpage("123456789", page_name="Sửa Máy Tính Đắk Lắk", is_active=0)
+    page_mod = db.get_fanpage_by_page_id("123456789")
+    assert page_mod["page_name"] == "Sửa Máy Tính Đắk Lắk"
+    assert page_mod["is_active"] == 0
+
+    # Delete fanpage
+    assert db.delete_fanpage("123456789") is True
+    assert db.get_fanpage_by_page_id("123456789") is None
+    assert db.delete_fanpage("123456789") is False
+
+
+def test_fanpage_toggle_and_filter_active(db):
+    db.add_fanpage("p1", "Page 1", "tok1", is_active=1)
+    db.add_fanpage("p2", "Page 2", "tok2", is_active=0)
+
+    # All pages
+    all_pages = db.get_fanpages(only_active=False)
+    assert len(all_pages) == 2
+
+    # Only active
+    active_pages = db.get_fanpages(only_active=True)
+    assert len(active_pages) == 1
+    assert active_pages[0]["page_id"] == "p1"
+
+    # Toggle p1 to inactive
+    assert db.toggle_fanpage_status("p1") is True
+    active_now = db.get_fanpages(only_active=True)
+    assert len(active_now) == 0
+
+    # Toggle p2 to active
+    assert db.toggle_fanpage_status("p2") is True
+    active_now2 = db.get_fanpages(only_active=True)
+    assert len(active_now2) == 1
+    assert active_now2[0]["page_id"] == "p2"
+
+
+def test_migrate_from_env(db):
+    # Empty db, migration succeeds
+    success = db.migrate_from_env("env_pid_1", "env_tok_1", "Env Page")
+    assert success is True
+    page = db.get_fanpage_by_page_id("env_pid_1")
+    assert page is not None
+    assert page["page_name"] == "Env Page"
+
+    # Second migration with same id does not duplicate
+    success2 = db.migrate_from_env("env_pid_1", "env_tok_1", "Env Page")
+    assert success2 is False
+
+    # Empty inputs return False
+    assert db.migrate_from_env("", "tok") is False
+    assert db.migrate_from_env("pid", "") is False
+
+
+def test_save_post_with_page_info_and_filter(db):
+    id1 = db.save_post(
+        topic="Post 1",
+        content="Content 1",
+        page_id="page_a",
+        page_name="Page Alpha",
+    )
+    id2 = db.save_post(
+        topic="Post 2",
+        content="Content 2",
+        page_id="page_b",
+        page_name="Page Beta",
+    )
+
+    p1 = db.get_post_by_id(id1)
+    assert p1["page_id"] == "page_a"
+    assert p1["page_name"] == "Page Alpha"
+
+    # Filter get_all_posts by page_id
+    posts_a = db.get_all_posts(page_id="page_a")
+    assert len(posts_a) == 1
+    assert posts_a[0]["id"] == id1
+
+    posts_b = db.get_all_posts(page_id="page_b")
+    assert len(posts_b) == 1
+    assert posts_b[0]["id"] == id2
+
+    all_posts = db.get_all_posts()
+    assert len(all_posts) >= 2
+
+
+def test_database_migration_from_legacy_schema(tmp_path):
+    import sqlite3
+    db_file = tmp_path / "legacy.db"
+
+    # Create an old schema without page_id / page_name
+    conn = sqlite3.connect(str(db_file))
+    conn.execute("""
+    CREATE TABLE posts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        topic TEXT NOT NULL,
+        content TEXT NOT NULL,
+        image_path TEXT,
+        status TEXT NOT NULL,
+        scheduled_time TEXT,
+        fb_post_id TEXT,
+        error_message TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    conn.execute("INSERT INTO posts (topic, content, status) VALUES ('Legacy', 'Legacy content', 'draft');")
+    conn.commit()
+    conn.close()
+
+    # Now load with DatabaseManager which should trigger ALTER TABLE migration
+    manager = DatabaseManager(db_path=str(db_file))
+    posts = manager.get_all_posts()
+    assert len(posts) == 1
+    assert "page_id" in posts[0]
+    assert "page_name" in posts[0]
+    assert posts[0]["page_id"] is None
+
+

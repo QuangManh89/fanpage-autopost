@@ -196,6 +196,16 @@ if "fb_page_name" not in st.session_state:
 # Load current credentials from .env
 env_config = load_env_config()
 
+# Auto-migrate credentials from .env to SQLite fanpages table if available
+if env_config.get("FB_PAGE_ID") and env_config.get("FB_PAGE_ACCESS_TOKEN"):
+    try:
+        env_pid = str(env_config["FB_PAGE_ID"]).strip()
+        env_tok = str(env_config["FB_PAGE_ACCESS_TOKEN"]).strip()
+        default_name = "Sửa Máy Tính Tại Nhà BMT" if env_pid == "619960427857965" else f"Fanpage {env_pid}"
+        db_manager.migrate_from_env(page_id=env_pid, access_token=env_tok, page_name=default_name)
+    except Exception as exc:
+        logger.warning(f"Auto-migration from env warning: {exc}")
+
 
 # Sidebar Navigation & System Status
 with st.sidebar:
@@ -204,24 +214,31 @@ with st.sidebar:
         width=50,
     )
     st.markdown("### **Fanpage Auto-Poster**")
-    st.caption("Phiên bản v1.0.0 · AI Google Gemini 2.5")
+    st.caption("Phiên bản v1.2.0 · Đa Fanpage & Đa AI (Gemini + OpenRouter)")
 
     st.markdown("---")
     st.markdown("#### **Trạng thái hệ thống**")
 
-    # Gemini Status Indicator
+    # AI Status Indicators
     has_gemini = bool(env_config.get("GEMINI_API_KEY"))
     if has_gemini:
         st.success("🟢 Gemini AI: Đã kết nối", icon="✅")
     else:
         st.warning("🟡 Gemini AI: Chưa có Key", icon="⚠️")
 
-    # Facebook Status Indicator
-    has_fb = bool(env_config.get("FB_PAGE_ID") and env_config.get("FB_PAGE_ACCESS_TOKEN"))
-    if has_fb:
-        st.success("🟢 Fanpage: Đã cấu hình", icon="✅")
+    has_openrouter = bool(env_config.get("OPENROUTER_API_KEY"))
+    if has_openrouter:
+        st.success("🟢 OpenRouter: Đã kết nối", icon="🤖")
+
+    # Facebook Fanpages Status Indicator
+    active_fanpages_sidebar = db_manager.get_fanpages(only_active=True)
+    all_fanpages_sidebar = db_manager.get_fanpages(only_active=False)
+    if active_fanpages_sidebar:
+        st.success(f"🟢 Fanpages: {len(active_fanpages_sidebar)} trang kích hoạt", icon="📄")
+    elif all_fanpages_sidebar:
+        st.warning(f"🟡 Fanpages: {len(all_fanpages_sidebar)} trang (đang tắt)", icon="⏸️")
     else:
-        st.warning("🟡 Fanpage: Chưa cấu hình", icon="⚠️")
+        st.warning("🟡 Fanpage: Chưa thêm trang nào", icon="⚠️")
 
     # Scheduler Status Indicator
     if scheduler_service.is_running:
@@ -236,16 +253,17 @@ with st.sidebar:
 # App Header
 st.markdown('<div class="main-title">🚀 Facebook Fanpage Auto-Poster</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="subtitle">Sáng tạo nội dung với Google Gemini 2.5 Grounding, tải ảnh đính kèm và đăng bài / lên lịch tự động.</div>',
+    '<div class="subtitle">Sáng tạo nội dung với Google Gemini / OpenRouter, quản lý đa Fanpage và lên lịch tự động.</div>',
     unsafe_allow_html=True,
 )
 
 # Main Application Tabs
-tab1, tab2, tab3, tab4 = st.tabs(
+tab1, tab2, tab3, tab4, tab5 = st.tabs(
     [
         "📝 Tạo bài viết với AI",
         "🚀 Đăng bài & Lên lịch",
         "📊 Lịch sử & Quản lý bài đăng",
+        "📑 Quản trị Fanpages",
         "⚙️ Cài đặt & Hướng dẫn Token",
     ]
 )
@@ -508,16 +526,22 @@ with tab1:
 # ==============================================================================
 with tab2:
     st.subheader("🚀 Đăng bài & Lên lịch xuất bản")
-    st.caption("Xem trước trực quan mô phỏng giao diện Facebook và lựa chọn phương thức xuất bản phù hợp.")
+    st.caption("Xem trước trực quan mô phỏng giao diện Facebook, chọn một hoặc nhiều Fanpage và lên lịch xuất bản.")
+
+    active_fps = db_manager.get_fanpages(only_active=True)
 
     preview_col, schedule_col = st.columns([1, 1], gap="large")
 
     with preview_col:
         st.markdown("#### **📱 Xem trước giao diện Facebook (Card Preview)**")
 
-        current_text = st.session_state.post_content.strip()
+        current_text = str(st.session_state.post_content or "").strip()
         display_text = current_text if current_text else "*(Chưa có nội dung bài viết. Hãy soạn thảo ở Tab 1)*"
-        fanpage_title = st.session_state.fb_page_name or "Facebook Fanpage"
+
+        # Determine preview Fanpage title
+        card_page_name = st.session_state.get("fb_page_name") or "Facebook Fanpage"
+        if active_fps and card_page_name == "Facebook Fanpage":
+            card_page_name = active_fps[0]["page_name"]
 
         # Render Facebook Post Card
         st.markdown(
@@ -526,7 +550,7 @@ with tab2:
                 <div class="fb-header">
                     <div class="fb-avatar">f</div>
                     <div>
-                        <div class="fb-name">{fanpage_title}</div>
+                        <div class="fb-name">{card_page_name}</div>
                         <div class="fb-time">Vừa xong · 🌐 Công khai</div>
                     </div>
                 </div>
@@ -553,10 +577,38 @@ with tab2:
         )
 
     with schedule_col:
-        st.markdown("#### **⚙️ Tùy chọn xuất bản**")
+        st.markdown("#### **⚙️ Tùy chọn Fanpage & Xuất bản**")
 
         if not current_text:
             st.warning("⚠️ Bạn chưa có nội dung bài viết. Vui lòng quay lại **Tab 1: Tạo bài viết với AI** để soạn bài.")
+
+        if not active_fps:
+            st.error("❌ Chưa có Fanpage nào được kích hoạt. Vui lòng vào Tab **📑 Quản trị Fanpages** để thêm hoặc bật Fanpage trước khi đăng!")
+            target_fps = []
+        else:
+            col_target1, col_target2 = st.columns([2, 1])
+            with col_target2:
+                is_broadcast = st.checkbox("📢 Đăng nhiều Page", value=False, help="Cho phép chọn đồng thời nhiều Fanpage để đăng cùng lúc")
+            with col_target1:
+                if is_broadcast:
+                    chosen_pids = st.multiselect(
+                        "Chọn các Fanpage đăng bài:",
+                        options=[fp["page_id"] for fp in active_fps],
+                        default=[fp["page_id"] for fp in active_fps],
+                        format_func=lambda pid: next((f"{fp['page_name']} ({fp['page_id']})" for fp in active_fps if fp["page_id"] == pid), pid),
+                    )
+                    target_fps = [fp for fp in active_fps if fp["page_id"] in chosen_pids]
+                else:
+                    chosen_pid = st.selectbox(
+                        "Chọn Fanpage đăng bài:",
+                        options=[fp["page_id"] for fp in active_fps],
+                        format_func=lambda pid: next((f"{fp['page_name']} ({fp['page_id']})" for fp in active_fps if fp["page_id"] == pid), pid),
+                    )
+                    target_fps = [fp for fp in active_fps if fp["page_id"] == chosen_pid] if chosen_pid else []
+
+            if target_fps:
+                first_name = target_fps[0]["page_name"]
+                st.session_state.fb_page_name = f"{first_name} (+{len(target_fps)-1} trang khác)" if len(target_fps) > 1 else first_name
 
         publish_mode = st.radio(
             "Chọn hình thức đăng:",
@@ -572,50 +624,43 @@ with tab2:
 
         # Mode 1: Immediate Publish
         if publish_mode == "🚀 Đăng ngay lên Fanpage":
-            st.info("Bài viết sẽ được đăng trực tiếp lên Facebook Fanpage ngay khi bạn bấm nút bên dưới.")
+            st.info("Bài viết sẽ được đăng trực tiếp lên Fanpage ngay khi bạn bấm nút bên dưới.")
 
             if st.button("🚀 Xuất bản ngay bây giờ", type="primary", use_container_width=True):
                 if not current_text:
                     st.error("❌ Nội dung bài viết không được để trống.")
-                elif not env_config.get("FB_PAGE_ID") or not env_config.get("FB_PAGE_ACCESS_TOKEN"):
-                    st.error("❌ Chưa cấu hình Facebook Page ID hoặc Page Access Token. Vui lòng qua Tab ⚙️ Cài đặt.")
+                elif not target_fps:
+                    st.error("❌ Vui lòng chọn ít nhất một Fanpage để đăng bài.")
                 else:
-                    try:
-                        with st.spinner("Đang gửi bài viết đến Facebook Graph API..."):
-                            fb_svc = FacebookService(
-                                page_id=env_config["FB_PAGE_ID"],
-                                access_token=env_config["FB_PAGE_ACCESS_TOKEN"],
-                            )
-                            img_path = st.session_state.post_image_path
-                            if img_path and os.path.exists(img_path):
-                                res = fb_svc.publish_photo_post(
-                                    message=current_text,
-                                    photo_path=img_path,
-                                )
-                            else:
-                                res = fb_svc.publish_text_post(message=current_text)
+                    img_path = st.session_state.post_image_path
+                    for fp in target_fps:
+                        fp_name = fp.get("page_name", fp["page_id"])
+                        try:
+                            with st.spinner(f"Đang gửi bài viết đến '{fp_name}'..."):
+                                fb_svc = FacebookService(page_id=fp["page_id"], access_token=fp["access_token"])
+                                if img_path and os.path.exists(img_path):
+                                    res = fb_svc.publish_photo_post(message=current_text, photo_path=img_path)
+                                else:
+                                    res = fb_svc.publish_text_post(message=current_text)
 
-                            fb_post_id = str(res.get("post_id") or res.get("id"))
-                            # Save to SQLite database
-                            saved_id = db_manager.save_post(
-                                topic=st.session_state.post_topic or "Đăng ngay",
-                                content=current_text,
-                                image_path=img_path,
-                                status="published",
-                                fb_post_id=fb_post_id,
-                            )
-                            post_url = format_facebook_url(fb_post_id)
-                            st.success(f"🎉 Đã đăng bài thành công lên Facebook Fanpage! (ID lưu: #{saved_id})")
-                            if post_url:
-                                st.markdown(f"🔗 **Xem bài viết trên Facebook:** [{post_url}]({post_url})")
-                    except FacebookTokenError as tok_err:
-                        st.error(f"❌ Lỗi Token Facebook (Code 190): {tok_err.user_message}")
-                    except FacebookPermissionError as perm_err:
-                        st.error(f"❌ Lỗi Quyền hạn Fanpage: {perm_err.user_message}")
-                    except FacebookAPIError as api_err:
-                        st.error(f"❌ Lỗi Facebook Graph API: {api_err.user_message}")
-                    except Exception as exc:
-                        st.error(f"❌ Có lỗi bất ngờ xảy ra: {exc}")
+                                fb_post_id = str(res.get("post_id") or res.get("id"))
+                                saved_id = db_manager.save_post(
+                                    topic=st.session_state.post_topic or "Đăng ngay",
+                                    content=current_text,
+                                    image_path=img_path,
+                                    status="published",
+                                    fb_post_id=fb_post_id,
+                                    page_id=fp["page_id"],
+                                    page_name=fp_name,
+                                )
+                                st.success(
+                                    f"🎉 Đã lên lịch thành công cho **{fp_name}**! (Mã: {fb_post_id}, ID: #{saved_id}) | "
+                                    f"Thời gian: {scheduled_dt.strftime('%d/%m/%Y %H:%M')}"
+                                )
+                        except FacebookAPIError as api_err:
+                            st.error(f"❌ '{fp_name}': Lỗi Graph API: {api_err.user_message}")
+                        except Exception as exc:
+                            st.error(f"❌ '{fp_name}': Lỗi bất ngờ: {exc}")
 
         # Mode 2: Facebook Graph API Scheduling
         elif publish_mode == "⏰ Hẹn giờ qua Facebook Graph API (Server Meta)":
@@ -640,46 +685,46 @@ with tab2:
                     st.error(f"❌ {err_msg}")
                 elif not current_text:
                     st.error("❌ Nội dung bài viết không được để trống.")
-                elif not env_config.get("FB_PAGE_ID") or not env_config.get("FB_PAGE_ACCESS_TOKEN"):
-                    st.error("❌ Chưa cấu hình Facebook Page ID hoặc Page Access Token trong Tab Cài đặt.")
+                elif not target_fps:
+                    st.error("❌ Vui lòng chọn ít nhất một Fanpage để lên lịch.")
                 else:
-                    try:
-                        with st.spinner("Đang gửi lệnh hẹn giờ đến Facebook Graph API..."):
-                            fb_svc = FacebookService(
-                                page_id=env_config["FB_PAGE_ID"],
-                                access_token=env_config["FB_PAGE_ACCESS_TOKEN"],
-                            )
-                            img_path = st.session_state.post_image_path
-                            if img_path and os.path.exists(img_path):
-                                res = fb_svc.publish_photo_post(
-                                    message=current_text,
-                                    photo_path=img_path,
-                                    scheduled_publish_time=unix_ts,
-                                )
-                            else:
-                                res = fb_svc.publish_text_post(
-                                    message=current_text,
-                                    scheduled_publish_time=unix_ts,
-                                )
+                    img_path = st.session_state.post_image_path
+                    for fp in target_fps:
+                        fp_name = fp.get("page_name", fp["page_id"])
+                        try:
+                            with st.spinner(f"Đang lên lịch trên máy chủ Facebook cho '{fp_name}'..."):
+                                fb_svc = FacebookService(page_id=fp["page_id"], access_token=fp["access_token"])
+                                if img_path and os.path.exists(img_path):
+                                    res = fb_svc.publish_photo_post(
+                                        message=current_text,
+                                        photo_path=img_path,
+                                        scheduled_publish_time=unix_ts,
+                                    )
+                                else:
+                                    res = fb_svc.publish_text_post(
+                                        message=current_text,
+                                        scheduled_publish_time=unix_ts,
+                                    )
 
-                            fb_post_id = str(res.get("post_id") or res.get("id"))
-                            # Save in SQLite
-                            saved_id = db_manager.save_post(
-                                topic=st.session_state.post_topic or "Hẹn giờ Facebook",
-                                content=current_text,
-                                image_path=img_path,
-                                status="scheduled_fb",
-                                scheduled_time=scheduled_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                                fb_post_id=fb_post_id,
-                            )
-                            st.success(
-                                f"🎉 Đã lên lịch thành công trên máy chủ Facebook! (Mã bài viết: {fb_post_id}, ID: #{saved_id})\n"
-                                f"Bài viết sẽ tự động xuất hiện vào lúc: {scheduled_dt.strftime('%d/%m/%Y %H:%M')}"
-                            )
-                    except FacebookAPIError as api_err:
-                        st.error(f"❌ Lỗi Facebook Graph API: {api_err.user_message}")
-                    except Exception as exc:
-                        st.error(f"❌ Có lỗi xảy ra: {exc}")
+                                fb_post_id = str(res.get("post_id") or res.get("id"))
+                                saved_id = db_manager.save_post(
+                                    topic=st.session_state.post_topic or "Hẹn giờ Facebook",
+                                    content=current_text,
+                                    image_path=img_path,
+                                    status="scheduled_fb",
+                                    scheduled_time=scheduled_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                                    fb_post_id=fb_post_id,
+                                    page_id=fp["page_id"],
+                                    page_name=fp_name,
+                                )
+                                st.success(
+                                    f"🎉 Đã lên lịch thành công cho **{fp_name}**! (Mã: {fb_post_id}, ID: #{saved_id}) | "
+                                    f"Thời gian: {scheduled_dt.strftime('%d/%m/%Y %H:%M')}"
+                                )
+                        except FacebookAPIError as api_err:
+                            st.error(f"❌ '{fp_name}': Lỗi Graph API: {api_err.user_message}")
+                        except Exception as exc:
+                            st.error(f"❌ '{fp_name}': Có lỗi xảy ra: {exc}")
 
         # Mode 3: Local APScheduler Scheduling
         elif publish_mode == "💻 Hẹn giờ Local máy tính (APScheduler)":
@@ -705,29 +750,29 @@ with tab2:
                     st.error(f"❌ {err_msg}")
                 elif not current_text:
                     st.error("❌ Nội dung bài viết không được để trống.")
-                elif not env_config.get("FB_PAGE_ID") or not env_config.get("FB_PAGE_ACCESS_TOKEN"):
-                    st.error("❌ Chưa cấu hình Facebook Page ID hoặc Page Access Token trong Tab Cài đặt.")
+                elif not target_fps:
+                    st.error("❌ Vui lòng chọn ít nhất một Fanpage để lên lịch.")
                 else:
-                    try:
-                        # 1. Save in SQLite with scheduled_local status
-                        img_path = st.session_state.post_image_path
-                        post_id = db_manager.save_post(
-                            topic=st.session_state.post_topic or "Hẹn giờ Local",
-                            content=current_text,
-                            image_path=img_path,
-                            status="scheduled_local",
-                            scheduled_time=scheduled_local_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                        )
-                        # 2. Add job to APScheduler
-                        job_id = scheduler_service.schedule_post(post_id=post_id, run_date=scheduled_local_dt)
-                        st.success(
-                            f"🎉 Đã thêm công việc hẹn giờ Local thành công!\n"
-                            f"- Mã bài viết trong hệ thống: **#{post_id}**\n"
-                            f"- Mã Job Scheduler: **{job_id}**\n"
-                            f"- Thời gian chạy: **{scheduled_local_dt.strftime('%d/%m/%Y %H:%M:%S')}**"
-                        )
-                    except Exception as exc:
-                        st.error(f"❌ Có lỗi khi lên lịch Local: {exc}")
+                    img_path = st.session_state.post_image_path
+                    for fp in target_fps:
+                        fp_name = fp.get("page_name", fp["page_id"])
+                        try:
+                            post_id = db_manager.save_post(
+                                topic=st.session_state.post_topic or "Hẹn giờ Local",
+                                content=current_text,
+                                image_path=img_path,
+                                status="scheduled_local",
+                                scheduled_time=scheduled_local_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                                page_id=fp["page_id"],
+                                page_name=fp_name,
+                            )
+                            job_id = scheduler_service.schedule_post(post_id=post_id, run_date=scheduled_local_dt)
+                            st.success(
+                                f"🎉 Đã thêm công việc hẹn giờ Local cho **{fp_name}**! | Mã: #{post_id} | Job: {job_id} | "
+                                f"Thời gian: {scheduled_local_dt.strftime('%d/%m/%Y %H:%M:%S')}"
+                            )
+                        except Exception as exc:
+                            st.error(f"❌ '{fp_name}': Có lỗi khi lên lịch Local: {exc}")
 
 
 # ==============================================================================
@@ -743,8 +788,19 @@ with tab3:
         if st.button("🔄 Làm mới dữ liệu", use_container_width=True):
             st.rerun()
 
+    # Fanpage and Status Filters
+    col_filter_status, col_filter_fp = st.columns([1, 1])
+    with col_filter_fp:
+        all_fanpages_filter = db_manager.get_fanpages(only_active=False)
+        fp_filter_options = ["Tất cả Fanpages"] + [f"{f['page_name']} ({f['page_id']})" for f in all_fanpages_filter]
+        selected_fp_label = st.selectbox("Lọc theo Fanpage:", fp_filter_options, index=0)
+
+    selected_fp_id = None
+    if selected_fp_label != "Tất cả Fanpages":
+        selected_fp_id = next((f["page_id"] for f in all_fanpages_filter if f"{f['page_name']} ({f['page_id']})" == selected_fp_label), None)
+
     # Fetch posts
-    all_posts = db_manager.get_all_posts(limit=100)
+    all_posts = db_manager.get_all_posts(limit=100, page_id=selected_fp_id)
 
     # Statistics Cards
     count_total = len(all_posts)
@@ -784,12 +840,12 @@ with tab3:
 
     st.markdown("---")
 
-    # Filter posts by status
-    filter_status = st.selectbox(
-        "Lọc bài viết theo trạng thái:",
-        ["Tất cả", "published", "scheduled_fb", "scheduled_local", "draft", "failed", "cancelled"],
-        index=0,
-    )
+    with col_filter_status:
+        filter_status = st.selectbox(
+            "Lọc bài viết theo trạng thái:",
+            ["Tất cả", "published", "scheduled_fb", "scheduled_local", "draft", "failed", "cancelled"],
+            index=0,
+        )
 
     filtered_posts = all_posts
     if filter_status != "Tất cả":
@@ -810,6 +866,7 @@ with tab3:
             content = post.get("content", "")
             image_path = post.get("image_path")
             err_msg = post.get("error_message")
+            page_name_val = post.get("page_name") or "Chưa gắn Page"
 
             badge_html = render_status_badge_html(status)
             fb_link = format_facebook_url(fb_post_id)
@@ -818,12 +875,12 @@ with tab3:
             if scheduled_time:
                 time_info += f" | Hẹn giờ: {scheduled_time}"
 
-            expander_title = f"#{pid} · [{get_status_badge(status)['label']}] {topic[:60]}... ({time_info})"
+            expander_title = f"#{pid} · [{page_name_val}] [{get_status_badge(status)['label']}] {topic[:50]}... ({time_info})"
 
             with st.expander(expander_title, expanded=False):
                 header_c1, header_c2 = st.columns([3, 1])
                 with header_c1:
-                    st.markdown(f"**Trạng thái:** {badge_html}", unsafe_allow_html=True)
+                    st.markdown(f"**Trạng thái:** {badge_html} &nbsp;|&nbsp; 🏷️ **Fanpage:** `{page_name_val}`", unsafe_allow_html=True)
                     if fb_post_id:
                         st.markdown(f"**Facebook Post ID:** `{fb_post_id}`")
                         if fb_link:
@@ -859,10 +916,20 @@ with tab3:
                     if status in ("failed", "draft"):
                         if st.button("🔁 Đăng ngay lại", key=f"retry_{pid}", use_container_width=True):
                             try:
-                                fb_svc = FacebookService(
-                                    page_id=env_config["FB_PAGE_ID"],
-                                    access_token=env_config["FB_PAGE_ACCESS_TOKEN"],
-                                )
+                                post_target_pid = post.get("page_id")
+                                post_target_tok = None
+                                if post_target_pid:
+                                    rec = db_manager.get_fanpage_by_page_id(str(post_target_pid))
+                                    if rec:
+                                        post_target_tok = rec.get("access_token")
+                                if not post_target_tok:
+                                    post_target_pid = env_config.get("FB_PAGE_ID")
+                                    post_target_tok = env_config.get("FB_PAGE_ACCESS_TOKEN")
+
+                                if not post_target_pid or not post_target_tok:
+                                    raise ValueError("Không tìm thấy thông tin xác thực Fanpage để xuất bản lại.")
+
+                                fb_svc = FacebookService(page_id=post_target_pid, access_token=post_target_tok)
                                 if image_path and os.path.exists(image_path):
                                     res = fb_svc.publish_photo_post(message=content, photo_path=image_path)
                                 else:
@@ -910,12 +977,118 @@ with tab3:
                         db_manager.delete_post(pid)
                         st.success(f"✅ Đã xóa bài viết #{pid}.")
                         st.rerun()
-
-
 # ==============================================================================
-# TAB 4: CÀI ĐẶT & HƯỚNG DẪN TOKEN
+# TAB 4: QUẢN TRỊ FANPAGES
 # ==============================================================================
 with tab4:
+    st.subheader("📑 Quản trị danh sách Facebook Fanpages")
+    st.caption("Quản lý nhiều Fanpage, kiểm tra quyền đăng bài, kích hoạt / tạm ẩn và thêm Fanpage mới qua Graph API.")
+
+    add_fp_col, list_fp_col = st.columns([1, 1], gap="large")
+
+    with add_fp_col:
+        st.markdown("#### **➕ Thêm Fanpage mới**")
+        st.caption("Nhập Page ID và Page Access Token. Hệ thống sẽ tự động gọi Meta Graph API để lấy Tên Fanpage và kiểm tra quyền.")
+
+        with st.form("add_fanpage_form"):
+            new_pid = st.text_input(
+                "Facebook Page ID:",
+                placeholder="Ví dụ: 619960427857965",
+                help="ID trang Fanpage (dãy số định danh duy nhất của Fanpage)",
+            )
+            new_token = st.text_input(
+                "Facebook Page Access Token (Long-Lived):",
+                type="password",
+                placeholder="EAAB...",
+                help="Mã Page Access Token dài hạn của Fanpage này",
+            )
+            add_fp_submit = st.form_submit_button("🔍 Xác thực & Thêm Fanpage", type="primary", use_container_width=True)
+
+            if add_fp_submit:
+                clean_pid = str(new_pid or "").strip()
+                clean_tok = str(new_token or "").strip()
+                if not clean_pid or not clean_tok:
+                    st.error("❌ Vui lòng nhập đầy đủ Page ID và Page Access Token.")
+                else:
+                    try:
+                        with st.spinner(f"Đang kiểm tra quyền hạn cho Page ID {clean_pid}..."):
+                            verifier_svc = FacebookService(page_id=clean_pid, access_token=clean_tok)
+                            token_info = verifier_svc.verify_token()
+                            p_name = token_info.get("page_name") or f"Fanpage {clean_pid}"
+                            db_manager.add_fanpage(
+                                page_id=clean_pid,
+                                page_name=p_name,
+                                access_token=clean_tok,
+                                is_active=1,
+                            )
+                            st.success(f"🎉 Xác thực thành công! Đã thêm Fanpage: **{p_name}** (ID: `{clean_pid}`)")
+                            st.rerun()
+                    except FacebookTokenError as tok_err:
+                        st.error(f"❌ Token không hợp lệ hoặc đã hết hạn: {tok_err.user_message}")
+                    except FacebookPermissionError as perm_err:
+                        st.error(f"❌ Token không đủ quyền đăng bài: {perm_err.user_message}")
+                    except FacebookAPIError as api_err:
+                        st.error(f"❌ Lỗi Facebook Graph API: {api_err.user_message}")
+                    except Exception as exc:
+                        st.error(f"❌ Có lỗi bất ngờ khi xác thực: {exc}")
+
+    with list_fp_col:
+        st.markdown("#### **📋 Danh sách Fanpages đã lưu**")
+        all_fps = db_manager.get_fanpages(only_active=False)
+
+        if not all_fps:
+            st.info("ℹ️ Hiện tại chưa có Fanpage nào được thêm. Hãy sử dụng form bên trái để thêm Fanpage đầu tiên.")
+        else:
+            st.caption(f"Tổng số: **{len(all_fps)}** Fanpage ({sum(1 for f in all_fps if f.get('is_active'))} đang hoạt động)")
+
+            for idx, fp in enumerate(all_fps):
+                f_pid = fp["page_id"]
+                f_name = fp.get("page_name", f_pid)
+                f_tok = fp.get("access_token", "")
+                f_active = bool(fp.get("is_active", 1))
+                masked_tok = f"{f_tok[:10]}...{f_tok[-4:]}" if len(f_tok) > 14 else "***"
+
+                status_pill = "🟢 Hoạt động" if f_active else "🔴 Tạm tắt"
+                card_title = f"{f_name} · [{status_pill}]"
+
+                with st.expander(card_title, expanded=f_active):
+                    st.markdown(f"**Tên Fanpage:** {f_name}")
+                    st.markdown(f"**Page ID:** `{f_pid}`")
+                    st.markdown(f"**Token:** `{masked_tok}`")
+                    st.markdown(f"**Trạng thái:** **{status_pill}**")
+
+                    btn_c1, btn_c2, btn_c3 = st.columns(3)
+                    with btn_c1:
+                        if st.button("🔄 Test kết nối", key=f"test_fp_{f_pid}", use_container_width=True):
+                            try:
+                                with st.spinner("Đang kiểm tra kết nối..."):
+                                    test_svc = FacebookService(page_id=f_pid, access_token=f_tok)
+                                    v_res = test_svc.verify_token()
+                                    live_name = v_res.get("page_name") or f_name
+                                    if live_name != f_name:
+                                        db_manager.update_fanpage(f_pid, page_name=live_name)
+                                    st.success(f"✅ Kết nối tốt! Tên: **{live_name}** | Quyền đăng: {'Có' if v_res.get('can_post') else 'Không'}")
+                            except Exception as ex:
+                                user_msg = getattr(ex, "user_message", str(ex))
+                                st.error(f"❌ Lỗi kết nối: {user_msg}")
+
+                    with btn_c2:
+                        toggle_label = "⏸️ Tắt" if f_active else "▶️ Bật"
+                        if st.button(toggle_label, key=f"toggle_fp_{f_pid}", use_container_width=True):
+                            db_manager.toggle_fanpage_status(f_pid)
+                            st.rerun()
+
+                    with btn_c3:
+                        if st.button("🗑️ Xóa", key=f"del_fp_{f_pid}", use_container_width=True):
+                            db_manager.delete_fanpage(f_pid)
+                            st.success(f"✅ Đã xóa Fanpage {f_name}.")
+                            st.rerun()
+
+
+# ==============================================================================
+# TAB 5: CÀI ĐẶT & HƯỚNG DẪN TOKEN
+# ==============================================================================
+with tab5:
     st.subheader("⚙️ Cấu hình API & Hướng dẫn lấy Token Fanpage")
     st.caption("Cấu hình kết nối Google Gemini API và Meta Facebook Graph API. Thông tin được lưu vào file `.env` an toàn.")
 

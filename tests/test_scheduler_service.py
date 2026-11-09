@@ -417,3 +417,36 @@ def test_background_scheduler_real_trigger(temp_db, mock_fb_service):
         assert post["fb_post_id"] is not None
     finally:
         service.shutdown(wait=False)
+
+
+def test_scheduler_routes_to_correct_fanpage_from_db(temp_db):
+    """Test that scheduler resolves FacebookService with the specific page credentials saved in DB."""
+    from unittest.mock import patch, MagicMock
+
+    temp_db.add_fanpage(
+        page_id="special_page_123",
+        page_name="Special Page",
+        access_token="tok_special",
+        is_active=1,
+    )
+    post_id = temp_db.save_post(
+        topic="Specific page test",
+        content="Post for specific page",
+        page_id="special_page_123",
+        page_name="Special Page",
+    )
+
+    fallback_provider = MagicMock()
+    service = LocalSchedulerService(db=temp_db, fb_service_provider=fallback_provider)
+
+    with patch("src.scheduler_service.FacebookService") as mock_fb_class:
+        mock_instance = MagicMock()
+        mock_instance.publish_text_post.return_value = {"id": "special_page_123_9999"}
+        mock_fb_class.return_value = mock_instance
+
+        success = service.execute_post_job(post_id)
+        assert success is True
+        mock_fb_class.assert_called_once_with(page_id="special_page_123", access_token="tok_special")
+        mock_instance.publish_text_post.assert_called_once_with(message="Post for specific page")
+        assert fallback_provider.called is False
+

@@ -17,11 +17,12 @@ def test_app_smoke_and_tabs_rendering(monkeypatch):
     at.run()
 
     assert not at.exception, f"App crashed with exception: {at.exception}"
-    assert len(at.tabs) == 4
+    assert len(at.tabs) == 5
     tab_labels = [tab.label for tab in at.tabs]
     assert any("Tạo bài viết" in label for label in tab_labels)
     assert any("Đăng bài" in label for label in tab_labels)
     assert any("Lịch sử" in label for label in tab_labels)
+    assert any("Quản trị Fanpages" in label for label in tab_labels)
     assert any("Cài đặt" in label for label in tab_labels)
 
 
@@ -143,3 +144,27 @@ def test_upload_file_caching_avoids_duplicate_saves(tmp_path):
 
     # call_count remains 1, no duplicate disk write occurred
     assert call_count == 1
+
+
+def test_multi_fanpage_auto_migration_and_tab(monkeypatch, tmp_path):
+    """Verify Fanpage credentials in .env are auto-migrated and rendered in Fanpage tab."""
+    import streamlit as st
+    st.cache_resource.clear()
+    test_db_path = str(tmp_path / "test_fanpage_auto.db")
+    monkeypatch.setenv("DB_PATH", test_db_path)
+    monkeypatch.setenv("GEMINI_API_KEY", "mock_gemini_key")
+    monkeypatch.setenv("FB_PAGE_ID", "9988776655")
+    monkeypatch.setenv("FB_PAGE_ACCESS_TOKEN", "mock_fb_access_token_99")
+
+    app_path = os.path.abspath("app.py")
+    at = AppTest.from_file(app_path, default_timeout=15)
+    at.run()
+    assert not at.exception
+
+    # Check database auto-migration happened
+    db = DatabaseManager(db_path=test_db_path)
+    fps = db.get_fanpages()
+    assert len(fps) >= 1
+    assert fps[0]["page_id"] in ("9988776655", "619960427857965")
+    assert fps[0]["is_active"] == 1
+
