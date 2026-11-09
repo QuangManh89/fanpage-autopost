@@ -1,6 +1,5 @@
 """Unit tests for FacebookService mocking Facebook Graph API requests."""
 
-import os
 import time
 from unittest.mock import MagicMock, patch
 import pytest

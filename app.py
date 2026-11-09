@@ -8,9 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
-from datetime import datetime, timedelta, time as dtime
-from typing import Any
+from datetime import datetime, timedelta
 
 import streamlit as st
 
@@ -191,8 +189,6 @@ if "post_image_paths" not in st.session_state:
     st.session_state.post_image_paths = []
 if "processed_file_signatures" not in st.session_state:
     st.session_state.processed_file_signatures = set()
-if "last_uploaded_file_id" not in st.session_state:
-    st.session_state.last_uploaded_file_id = None
 if "post_sources" not in st.session_state:
     st.session_state.post_sources = []
 if "fb_page_name" not in st.session_state:
@@ -544,6 +540,15 @@ with tab1:
             st.info("Chưa có ảnh nào được chọn. Bài viết sẽ được đăng ở định dạng văn bản (Text post).")
 
 
+def get_active_post_images() -> tuple[list[str], str | None]:
+    """Lấy danh sách đường dẫn ảnh đính kèm hợp lệ và chuỗi phân tách dấu phẩy cho DB."""
+    imgs = [p for p in st.session_state.post_image_paths if os.path.exists(p)]
+    if not imgs and st.session_state.post_image_path and os.path.exists(st.session_state.post_image_path):
+        imgs = [st.session_state.post_image_path]
+    db_val = ",".join(imgs) if imgs else None
+    return imgs, db_val
+
+
 # ==============================================================================
 # TAB 2: ĐĂNG BÀI & LÊN LỊCH
 # ==============================================================================
@@ -667,10 +672,7 @@ with tab2:
                 elif not target_fps:
                     st.error("❌ Vui lòng chọn ít nhất một Fanpage để đăng bài.")
                 else:
-                    active_imgs = [p for p in st.session_state.post_image_paths if os.path.exists(p)]
-                    if not active_imgs and st.session_state.post_image_path and os.path.exists(st.session_state.post_image_path):
-                        active_imgs = [st.session_state.post_image_path]
-                    img_db_val = ",".join(active_imgs) if active_imgs else None
+                    active_imgs, img_db_val = get_active_post_images()
 
                     for fp in target_fps:
                         fp_name = fp.get("page_name", fp["page_id"])
@@ -729,10 +731,7 @@ with tab2:
                 elif not target_fps:
                     st.error("❌ Vui lòng chọn ít nhất một Fanpage để lên lịch.")
                 else:
-                    active_imgs = [p for p in st.session_state.post_image_paths if os.path.exists(p)]
-                    if not active_imgs and st.session_state.post_image_path and os.path.exists(st.session_state.post_image_path):
-                        active_imgs = [st.session_state.post_image_path]
-                    img_db_val = ",".join(active_imgs) if active_imgs else None
+                    active_imgs, img_db_val = get_active_post_images()
 
                     for fp in target_fps:
                         fp_name = fp.get("page_name", fp["page_id"])
@@ -804,10 +803,7 @@ with tab2:
                 elif not target_fps:
                     st.error("❌ Vui lòng chọn ít nhất một Fanpage để lên lịch.")
                 else:
-                    active_imgs = [p for p in st.session_state.post_image_paths if os.path.exists(p)]
-                    if not active_imgs and st.session_state.post_image_path and os.path.exists(st.session_state.post_image_path):
-                        active_imgs = [st.session_state.post_image_path]
-                    img_db_val = ",".join(active_imgs) if active_imgs else None
+                    active_imgs, img_db_val = get_active_post_images()
 
                     for fp in target_fps:
                         fp_name = fp.get("page_name", fp["page_id"])
@@ -1110,7 +1106,7 @@ with tab4:
                 f_name = fp.get("page_name", f_pid)
                 f_tok = fp.get("access_token", "")
                 f_active = bool(fp.get("is_active", 1))
-                masked_tok = f"{f_tok[:10]}...{f_tok[-4:]}" if len(f_tok) > 14 else "***"
+                masked_tok = mask_token(f_tok)
 
                 status_pill = "🟢 Hoạt động" if f_active else "🔴 Tạm tắt"
                 card_title = f"{f_name} · [{status_pill}]"
@@ -1568,7 +1564,6 @@ with tab5:
                 category = page.get("category", "")
                 is_target = (pid == "619960427857965")
 
-                border_color = "#10b981" if is_target else "#334155"
                 badge = " 🎯 [Sửa Máy Tính BMT]" if is_target else ""
 
                 st.markdown(f"**{pname}**{badge}  \n`ID: {pid}` {f'| Danh mục: {category}' if category else ''}")

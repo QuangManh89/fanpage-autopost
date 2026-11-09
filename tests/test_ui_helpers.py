@@ -2,7 +2,6 @@
 
 import os
 from datetime import datetime, timedelta
-import io
 import pytest
 
 from src.ui_helpers import (

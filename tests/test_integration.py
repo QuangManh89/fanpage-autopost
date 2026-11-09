@@ -26,10 +26,7 @@ from src.facebook_service import (
 from src.gemini_service import GeminiService
 from src.openrouter_service import OpenRouterService
 from src.scheduler_service import LocalSchedulerService
-from src.ui_helpers import (
-    validate_schedule_datetime_fb,
-    validate_schedule_datetime_local,
-)
+from src.ui_helpers import validate_schedule_datetime_fb
 
 
 @pytest.fixture

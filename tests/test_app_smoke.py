@@ -1,7 +1,6 @@
 """Smoke and UI interaction tests for app.py using Streamlit AppTest framework."""
 
 import os
-import pytest
 from streamlit.testing.v1 import AppTest
 from src.database import DatabaseManager
 

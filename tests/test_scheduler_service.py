@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
 
 from src.database import DatabaseManager
-from src.facebook_service import FacebookAPIError, FacebookService, FacebookTokenError
+from src.facebook_service import FacebookService, FacebookTokenError
 from src.scheduler_service import LocalSchedulerService
 
 

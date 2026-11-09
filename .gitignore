@@ -12,11 +12,14 @@ __pycache__/
 
 # Database
 data/*.db
+*.db
 *.sqlite3
 
 # Uploaded/Generated media
 images/generated/
 uploads/
+data/uploads/
+!data/uploads/.gitkeep
 
 # IDE / VS Code
 .vscode/

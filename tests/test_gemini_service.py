@@ -1,5 +1,4 @@
 from unittest.mock import MagicMock, patch
-import os
 import pytest
 
 from src.gemini_service import GeminiService
