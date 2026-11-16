@@ -348,12 +348,14 @@ KNOWN_LOCAL_TAGS = {
 def replace_page_hashtags(content: str, new_hashtags: str) -> str:
     """Cập nhật hoặc thay thế cụm hashtag địa phương của Fanpage trong nội dung bài viết.
 
+    Bảo toàn 100% cấu trúc xuống dòng (\n\n, \n), đoạn văn, gạch đầu dòng và khoảng cách.
+
     Args:
         content: Nội dung bài viết hiện tại.
         new_hashtags: Cụm hashtag mới của Fanpage (ví dụ: '#q8 #q4 #q6 #q1 #BinhChanh #Conic').
 
     Returns:
-        Nội dung bài viết đã được cập nhật cụm hashtag tương ứng.
+        Nội dung bài viết đã được cập nhật cụm hashtag tương ứng mà không làm mất cấu trúc xuống dòng.
     """
     clean_content = str(content or "").strip()
     clean_new_tags = str(new_hashtags or "").strip()
@@ -361,21 +363,38 @@ def replace_page_hashtags(content: str, new_hashtags: str) -> str:
     if not clean_new_tags:
         return clean_content
 
+    # Normalize line endings to standard Unix newline
+    clean_content = clean_content.replace("\r\n", "\n").replace("\r", "\n")
+
     new_tags_list = [t.strip() for t in clean_new_tags.split() if t.strip().startswith("#")]
     new_tags_lower = {t.lower() for t in new_tags_list}
 
-    # Filter out known localized hashtags belonging to other Fanpages
-    words = clean_content.split()
-    filtered_words = []
-    for w in words:
-        clean_w = w.strip()
-        if clean_w.lower() in KNOWN_LOCAL_TAGS and clean_w.lower() not in new_tags_lower:
-            continue
-        filtered_words.append(w)
+    # Find tags that belong to other fanpages and need to be removed
+    tags_to_remove = {t for t in KNOWN_LOCAL_TAGS if t not in new_tags_lower}
 
-    reconstructed = " ".join(filtered_words).strip()
-    content_lower = reconstructed.lower()
-    missing_tags = [t for t in new_tags_list if t.lower() not in content_lower]
+    for tag in tags_to_remove:
+        # Match case-insensitively with boundary
+        pattern = rf"(?i){re.escape(tag)}(?=\s|[.,;!?]|$)"
+        clean_content = re.sub(pattern, "", clean_content)
+
+    # Clean up redundant horizontal spaces while strictly preserving newlines
+    lines = clean_content.split("\n")
+    cleaned_lines = []
+    for line in lines:
+        cleaned_line = re.sub(r"[ \t]+", " ", line).strip()
+        cleaned_lines.append(cleaned_line)
+
+    # Rejoin lines
+    reconstructed = "\n".join(cleaned_lines)
+    # Collapse 3+ newlines to 2 newlines (standard paragraph gap)
+    reconstructed = re.sub(r"\n{3,}", "\n\n", reconstructed).strip()
+
+    # Detect which hashtags from new_tags_list are already in reconstructed content
+    existing_tags = {
+        m.group(0).lower()
+        for m in re.finditer(r"#[A-Za-z0-9_À-ỹ]+", reconstructed)
+    }
+    missing_tags = [t for t in new_tags_list if t.lower() not in existing_tags]
 
     if not missing_tags:
         return reconstructed

@@ -337,8 +337,9 @@ class FacebookService:
         sched_time = self.validate_schedule_time(scheduled_publish_time)
         url = f"{self.base_url}/{self.page_id}/feed"
 
+        clean_message = str(message or "").replace("\r\n", "\n").replace("\r", "\n").strip()
         payload: dict[str, Any] = {
-            "message": message.strip(),
+            "message": clean_message,
             "access_token": self.access_token,
         }
 
@@ -392,8 +393,9 @@ class FacebookService:
         sched_time = self.validate_schedule_time(scheduled_publish_time)
         url = f"{self.base_url}/{self.page_id}/photos"
 
+        clean_message = str(message or "").replace("\r\n", "\n").replace("\r", "\n")
         payload: dict[str, Any] = {
-            "caption": message or "",
+            "caption": clean_message,
             "access_token": self.access_token,
         }
 
@@ -476,8 +478,9 @@ class FacebookService:
 
         # Publish the feed post with attached_media
         feed_url = f"{self.base_url}/{self.page_id}/feed"
+        clean_message = str(message or "").replace("\r\n", "\n").replace("\r", "\n")
         feed_payload: dict[str, Any] = {
-            "message": message or "",
+            "message": clean_message,
             "access_token": self.access_token,
             "attached_media": json.dumps(media_fbids),
         }

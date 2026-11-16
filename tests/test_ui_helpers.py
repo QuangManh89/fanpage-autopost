@@ -259,3 +259,39 @@ def test_replace_page_hashtags():
     assert replace_page_hashtags("", conic_tags) == conic_tags
     assert replace_page_hashtags("Some content", "") == "Some content"
     assert replace_page_hashtags("Some content", "   ") == "Some content"
+
+
+def test_replace_page_hashtags_preserves_multiline_structure():
+    """Verify that replace_page_hashtags strictly preserves linebreaks, paragraphs, and list formatting."""
+    from src.ui_helpers import replace_page_hashtags
+
+    multiline_content = (
+        "TIÊU ĐỀ BÀI VIẾT QUAN TRỌNG!\n\n"
+        "Đoạn văn thứ nhất giới thiệu chi tiết vấn đề.\n"
+        "Một câu tiếp theo trong cùng đoạn.\n\n"
+        "Danh sách các bước xử lý:\n"
+        "- Bước 1: Kiểm tra phần cứng\n"
+        "- Bước 2: Thay thế linh kiện\n"
+        "- Bước 3: Vệ sinh máy\n\n"
+        "Liên hệ ngay với chúng tôi để được tư vấn!\n\n"
+        "#Laptop #CongNghe"
+    )
+
+    conic_tags = "#q8 #q4 #q6 #q1 #BinhChanh #Conic #SuaLaptopConic"
+    result = replace_page_hashtags(multiline_content, conic_tags)
+
+    # Paragraphs must still be separated by double newlines
+    assert "TIÊU ĐỀ BÀI VIẾT QUAN TRỌNG!\n\nĐoạn văn thứ nhất" in result
+    assert "Một câu tiếp theo trong cùng đoạn.\n\nDanh sách các bước xử lý:" in result
+
+    # Bullet points must still be on separate lines
+    assert "- Bước 1: Kiểm tra phần cứng\n- Bước 2: Thay thế linh kiện\n- Bước 3: Vệ sinh máy" in result
+
+    # General tags preserved and new target tags appended
+    assert "#Laptop" in result
+    assert "#CongNghe" in result
+    assert "#q8" in result
+    assert "#Conic" in result
+
+    # Newlines count should be preserved (not flattened into 1 line)
+    assert result.count("\n") >= multiline_content.count("\n")

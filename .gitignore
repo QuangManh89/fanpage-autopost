@@ -29,3 +29,6 @@ data/uploads/
 .agents/
 .claude/
 .opencode/
+
+# Pytest temporary files
+.pytest_temp/
